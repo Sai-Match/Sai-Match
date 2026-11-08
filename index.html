@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>SaiMatch</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            width: 350px;
+            padding: 30px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h2 {
+            text-align: center;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+            box-sizing: border-box;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            margin-top: 15px;
+            cursor: pointer;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <!-- ログイン画面 -->
+        <div id="loginForm">
+
+            <h2>ログイン</h2>
+
+            <input
+                type="email"
+                id="loginEmail"
+                placeholder="メールアドレス">
+
+            <input
+                type="password"
+                id="loginPassword"
+                placeholder="パスワード">
+
+            <button id="loginBtn">
+                ログイン
+            </button>
+
+            <p>
+                アカウントをお持ちでないですか？
+
+                <a href="#" onclick="showRegister()">
+                    新規登録
+                </a>
+            </p>
+
+        </div>
+
+        <!-- 新規登録画面 -->
+        <div id="registerForm" class="hidden">
+
+            <h2>新規登録</h2>
+
+            <input
+                type="email"
+                id="registerEmail"
+                placeholder="メールアドレス">
+
+            <input
+                type="password"
+                id="registerPassword"
+                placeholder="パスワード">
+
+            <button id="registerBtn">
+                新規登録
+            </button>
+
+            <p>
+                既にアカウントがありますか？
+
+                <a href="#" onclick="showLogin()">
+                    ログイン
+                </a>
+
+            </p>
+
+        </div>
+
+    </div>
+
+    <script>
+
+        function showRegister() {
+            document
+                .getElementById("loginForm")
+                .classList.add("hidden");
+
+            document
+                .getElementById("registerForm")
+                .classList.remove("hidden");
+        }
+
+        function showLogin() {
+            document
+                .getElementById("registerForm")
+                .classList.add("hidden");
+
+            document
+                .getElementById("loginForm")
+                .classList.remove("hidden");
+        }
+
+    </script>
+
+    <script type="module" src="firebase.js"></script>
+
+</body>
+
+</html>

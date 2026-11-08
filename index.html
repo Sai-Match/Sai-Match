@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>SaiMatch</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            width: 350px;
+            padding: 30px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h2 {
+            text-align: center;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+            box-sizing: border-box;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            margin-top: 15px;
+            cursor: pointer;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        #userCard {
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+
+        .cardActions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .cardActions button {
+            flex: 1;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <!-- ログイン画面 -->
+        <div id="loginForm">
+
+            <h2>ログイン</h2>
+
+            <input
+                type="email"
+                id="loginEmail"
+                placeholder="メールアドレス">
+
+            <input
+                type="password"
+                id="loginPassword"
+                placeholder="パスワード">
+
+            <button id="loginBtn">
+                ログイン
+            </button>
+
+            <p>
+                アカウントをお持ちでないですか？
+
+                <a href="#" onclick="showRegister()">
+                    新規登録
+                </a>
+            </p>
+
+        </div>
+
+        <!-- 新規登録画面 -->
+        <div id="registerForm" class="hidden">
+
+            <h2>新規登録</h2>
+
+            <input
+                type="email"
+                id="registerEmail"
+                placeholder="メールアドレス">
+
+            <input
+                type="password"
+                id="registerPassword"
+                placeholder="パスワード">
+
+            <button id="registerBtn">
+                新規登録
+            </button>
+
+            <p>
+                既にアカウントがありますか？
+
+                <a href="#" onclick="showLogin()">
+                    ログイン
+                </a>
+
+            </p>
+
+        </div>
+
+        <!-- プロフィール登録画面 -->
+        <div id="profileForm" class="hidden">
+
+            <h2>プロフィール登録</h2>
+
+            <input
+                type="text"
+                id="nickname"
+                placeholder="ニックネーム">
+
+            <input
+                type="text"
+                id="faculty"
+                placeholder="学部">
+
+            <select id="grade">
+                <option value="">学年を選択</option>
+                <option value="1">1年</option>
+                <option value="2">2年</option>
+                <option value="3">3年</option>
+                <option value="4">4年</option>
+            </select>
+
+            <button id="saveProfileBtn">
+                保存
+            </button>
+
+        </div>
+
+        <div id="userListPage" class="hidden">
+
+            <h2>ユーザー一覧</h2>
+
+            <p id="currentUser"></p>
+
+            <div id="userCard">
+
+                <h3 id="nicknameView"></h3>
+
+                <p id="facultyView"></p>
+
+                <p id="gradeView"></p>
+
+                <div class="cardActions">
+                    <button id="passBtn">
+                        ❌
+                    </button>
+
+                    <button id="likeBtn">
+                        ⭕
+                    </button>
+                </div>
+
+            </div>
+
+            <button id="loadUsersBtn">
+                ユーザー更新
+            </button>
+
+            <button id="logoutBtn">
+                ログアウト
+            </button>
+
+        </div>
+
+    </div>
+
+    <script>
+
+        function showRegister() {
+            document
+                .getElementById("loginForm")
+                .classList.add("hidden");
+
+            document
+                .getElementById("registerForm")
+                .classList.remove("hidden");
+        }
+
+        function showLogin() {
+            document
+                .getElementById("registerForm")
+                .classList.add("hidden");
+
+            document
+                .getElementById("loginForm")
+                .classList.remove("hidden");
+        }
+
+    </script>
+
+    <script type="module" src="firebase.js"></script>
+
+</body>
+
+</html>

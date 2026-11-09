@@ -28,7 +28,8 @@
         }
 
         input,
-        select {
+        select,
+        textarea {
             width: 100%;
             padding: 10px;
             margin-top: 10px;
@@ -52,6 +53,12 @@
             border-radius: 8px;
         }
 
+        #profileImageView {
+            max-width: 100%;
+            max-height: 240px;
+            object-fit: cover;
+        }
+
         .cardActions {
             display: flex;
             gap: 10px;
@@ -59,6 +66,81 @@
 
         .cardActions button {
             flex: 1;
+        }
+
+        #mainNavigation {
+            display: flex;
+            gap: 8px;
+        }
+
+        #mainNavigation button {
+            flex: 1;
+            padding: 8px 4px;
+        }
+
+        #mainNavigation.hidden {
+            display: none;
+        }
+
+        .matchCard {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .matchCard img {
+            width: 64px;
+            height: 64px;
+            flex: 0 0 64px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        .matchCardInfo {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .matchCardActions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .matchCardActions button {
+            width: auto;
+            margin-top: 0;
+        }
+
+        #matchProfileImage {
+            display: block;
+            max-width: 100%;
+            max-height: 300px;
+            margin: 16px auto;
+            object-fit: cover;
+        }
+
+        #matchProfileImage.hidden {
+            display: none;
+        }
+
+        .chatMessages {
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f5f5f5;
+        }
+
+        .chatMessage {
+            margin: 8px 0;
+            overflow-wrap: anywhere;
+        }
+
+        .chatMessageTime {
+            display: block;
+            color: #666;
+            font-size: 0.8em;
         }
     </style>
 </head>
@@ -129,7 +211,12 @@
         <!-- プロフィール登録画面 -->
         <div id="profileForm" class="hidden">
 
-            <h2>プロフィール登録</h2>
+            <h2 id="profileFormTitle">プロフィール登録</h2>
+
+            <input
+                type="file"
+                id="profileImage"
+                accept="image/*">
 
             <input
                 type="text"
@@ -141,13 +228,23 @@
                 id="faculty"
                 placeholder="学部">
 
+            <input
+                type="text"
+                id="department"
+                placeholder="学科">
+
             <select id="grade">
-                <option value="">学年を選択</option>
+                <option value="">学年選択</option>
                 <option value="1">1年</option>
                 <option value="2">2年</option>
                 <option value="3">3年</option>
                 <option value="4">4年</option>
             </select>
+
+            <textarea
+                id="bio"
+                placeholder="自己紹介"
+                rows="5"></textarea>
 
             <button id="saveProfileBtn">
                 保存
@@ -163,11 +260,17 @@
 
             <div id="userCard">
 
+                <img id="profileImageView" class="hidden" alt="プロフィール画像">
+
                 <h3 id="nicknameView"></h3>
 
                 <p id="facultyView"></p>
 
+                <p id="departmentView"></p>
+
                 <p id="gradeView"></p>
+
+                <p id="bioView"></p>
 
                 <div class="cardActions">
                     <button id="passBtn">
@@ -185,10 +288,87 @@
                 ユーザー更新
             </button>
 
-            <button id="logoutBtn">
-                ログアウト
-            </button>
+        </div>
 
+        <nav id="mainNavigation" class="hidden" aria-label="メインメニュー">
+            <button id="homeNavBtn" type="button">🏠 モード選択</button>
+            <button id="matchesNavBtn" type="button">❤️ マッチ一覧</button>
+            <button id="profileNavBtn" type="button">👤 プロフィール</button>
+            <button id="logoutBtn" type="button">ログアウト</button>
+        </nav>
+
+        <div id="modeSelectPage" class="hidden">
+            <h2>モード選択</h2>
+            <button id="relationshipModeBtn" type="button">
+                ❤️ 人間関係モード
+            </button>
+            <button id="studyModeBtn" type="button">
+                📚 学習モード
+            </button>
+        </div>
+
+        <div id="relationshipProfilePage" class="hidden">
+            <h2>人間関係モード登録</h2>
+            <select id="relationshipGoal">
+                <option value="">選択してください</option>
+                <option value="friend">友達募集</option>
+                <option value="lover">恋人募集</option>
+                <option value="both">両方</option>
+            </select>
+            <input
+                type="text"
+                id="weekendStyle"
+                placeholder="休日の過ごし方">
+            <textarea
+                id="idealPartner"
+                placeholder="どんな人と出会いたい？"></textarea>
+            <button id="saveRelationshipProfileBtn" type="button">
+                保存
+            </button>
+        </div>
+
+        <div id="studyProfilePage" class="hidden">
+            <h2>学習モード登録</h2>
+            <input
+                type="text"
+                id="studyTopic"
+                placeholder="学習したい内容">
+            <select id="studyFrequency">
+                <option value="">学習頻度</option>
+                <option value="week1">週1回</option>
+                <option value="week2">週2回</option>
+                <option value="week3">週3回以上</option>
+            </select>
+            <input
+                type="text"
+                id="studyGoal"
+                placeholder="目標">
+            <button id="saveStudyProfileBtn" type="button">
+                保存
+            </button>
+        </div>
+
+        <div id="matchListPage" class="hidden">
+            <h2>マッチ一覧</h2>
+            <div id="matchList"></div>
+        </div>
+
+        <div id="matchProfilePage" class="hidden">
+            <button id="backToMatchListBtn" type="button">戻る</button>
+            <img id="matchProfileImage" class="hidden" alt="プロフィール画像">
+            <h2 id="matchProfileNickname"></h2>
+            <p id="matchProfileFaculty"></p>
+            <p id="matchProfileDepartment"></p>
+            <p id="matchProfileGrade"></p>
+            <p id="matchProfileBio"></p>
+        </div>
+
+        <div id="chatPage" class="hidden">
+            <button id="backToMatchesBtn" type="button">マッチ一覧に戻る</button>
+            <h2 id="chatPartnerName"></h2>
+            <div id="chatMessages" class="chatMessages"></div>
+            <textarea id="messageInput" placeholder="メッセージを入力"></textarea>
+            <button id="sendMessageBtn" type="button">送信</button>
         </div>
 
     </div>

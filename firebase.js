@@ -458,7 +458,7 @@ async function showUserList(user, mode = currentMode) {
     await loadModeUsers();
 }
 
-function showModeProfileForm(mode) {
+function showModeProfileForm(mode, profileData = {}, isEditing = false) {
     stopListeningToMessages();
     hideModePages();
     document.getElementById("loginForm").classList.add("hidden");
@@ -468,8 +468,58 @@ function showModeProfileForm(mode) {
     document.getElementById("matchListPage").classList.add("hidden");
     document.getElementById("matchProfilePage").classList.add("hidden");
     document.getElementById("chatPage").classList.add("hidden");
-    document.getElementById(MODE_CONFIG[mode].profilePageId).classList.remove("hidden");
+    const config = MODE_CONFIG[mode];
+    config.fields.forEach((field) => {
+        if (field.inputType === "checkboxes") {
+            const selectedValues = Array.isArray(profileData[field.key])
+                ? profileData[field.key]
+                : [];
+            document
+                .querySelectorAll(`input[name="${field.inputId}"]`)
+                .forEach((input) => {
+                    input.checked = selectedValues.includes(input.value);
+                });
+        } else {
+            document.getElementById(field.inputId).value =
+                profileData[field.key] || "";
+        }
+    });
+    document.getElementById(config.profilePageId)
+        .querySelector("h2").textContent =
+        `${config.title}モードプロフィール${isEditing ? "編集" : "登録"}`;
+    document.getElementById(
+        `save${mode[0].toUpperCase()}${mode.slice(1)}ProfileBtn`
+    ).textContent = isEditing ? "更新" : "保存";
+    document.getElementById(config.profilePageId).classList.remove("hidden");
     document.getElementById("mainNavigation").classList.remove("hidden");
+}
+
+async function editCurrentModeProfile() {
+    const currentUser = auth.currentUser;
+    const mode = currentMode;
+    if (!currentUser || !MODE_CONFIG[mode]) {
+        alert("編集するモードプロフィールがありません");
+        return;
+    }
+
+    try {
+        const profileSnapshot = await getDoc(
+            doc(db, `${mode}Profiles`, currentUser.uid)
+        );
+        if (
+            auth.currentUser?.uid !== currentUser.uid ||
+            currentMode !== mode
+        ) {
+            return;
+        }
+        showModeProfileForm(
+            mode,
+            profileSnapshot.exists() ? profileSnapshot.data() : {},
+            profileSnapshot.exists()
+        );
+    } catch (error) {
+        alert(error.message);
+    }
 }
 
 function showModeSelect() {
@@ -553,7 +603,8 @@ Object.entries(MODE_CONFIG).forEach(([mode, config]) => {
             try {
                 await setDoc(
                     doc(db, `${mode}Profiles`, user.uid),
-                    profile
+                    profile,
+                    { merge: true }
                 );
                 alert("保存完了");
                 await showUserList(user, mode);
@@ -633,6 +684,51 @@ document
 // ユーザー一覧
 // ====================
 
+function calculateExchangeMatch(myProfile, targetProfile) {
+    const mySpeakLanguages = new Set(
+        Array.isArray(myProfile.speakLanguages) ? myProfile.speakLanguages : []
+    );
+    const myLearnLanguages = new Set(
+        Array.isArray(myProfile.learnLanguages) ? myProfile.learnLanguages : []
+    );
+    const targetSpeakLanguages = new Set(
+        Array.isArray(targetProfile.speakLanguages)
+            ? targetProfile.speakLanguages
+            : []
+    );
+    const targetLearnLanguages = new Set(
+        Array.isArray(targetProfile.learnLanguages)
+            ? targetProfile.learnLanguages
+            : []
+    );
+    const commonPoints = [];
+
+    myLearnLanguages.forEach((language) => {
+        if (targetSpeakLanguages.has(language)) {
+            commonPoints.push({
+                learner: "あなた",
+                speaker: "相手",
+                language
+            });
+        }
+    });
+    targetLearnLanguages.forEach((language) => {
+        if (mySpeakLanguages.has(language)) {
+            commonPoints.push({
+                learner: "相手",
+                speaker: "あなた",
+                language
+            });
+        }
+    });
+
+    return {
+        matchCount: commonPoints.length,
+        score: commonPoints.length * 50,
+        commonPoints
+    };
+}
+
 async function loadModeUsers() {
 
     const currentUser = auth.currentUser;
@@ -668,6 +764,15 @@ async function loadModeUsers() {
             await showUserList(currentUser, mode);
             return;
         }
+        const currentModeProfile = modeProfiles.docs
+            .find((profileDoc) => profileDoc.id === currentUser.uid)
+            .data();
+        const oppositeExchangeType = mode === "exchange"
+            ? {
+                japanese: "international",
+                international: "japanese"
+            }[currentModeProfile.exchangeType]
+            : null;
 
         const cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - 30);
@@ -695,7 +800,14 @@ async function loadModeUsers() {
                 .filter((profileDoc) =>
                     profileDoc.id !== currentUser.uid &&
                     !blockedUserIds.has(profileDoc.id) &&
-                    !passedUserIds.has(profileDoc.id)
+                    !passedUserIds.has(profileDoc.id) &&
+                    (
+                        mode !== "exchange" ||
+                        (
+                            oppositeExchangeType &&
+                            profileDoc.data().exchangeType === oppositeExchangeType
+                        )
+                    )
                 )
                 .map(async (profileDoc) => {
                     const userSnapshot = await getDoc(
@@ -704,10 +816,22 @@ async function loadModeUsers() {
                     if (!userSnapshot.exists()) {
                         return null;
                     }
-                    return {
+                    const profile = {
                         id: userSnapshot.id,
                         ...userSnapshot.data()
                     };
+                    if (mode === "exchange") {
+                        const exchangeProfile = profileDoc.data();
+                        const compatibility = calculateExchangeMatch(
+                            currentModeProfile,
+                            exchangeProfile
+                        );
+                        profile.exchangeProfile = exchangeProfile;
+                        profile.exchangeMatchCount = compatibility.matchCount;
+                        profile.exchangeMatchScore = compatibility.score;
+                        profile.exchangeCommonPoints = compatibility.commonPoints;
+                    }
+                    return profile;
                 })
         );
 
@@ -719,6 +843,11 @@ async function loadModeUsers() {
         }
 
         users = candidateProfiles.filter((profile) => profile !== null);
+        if (mode === "exchange") {
+            users.sort((first, second) =>
+                second.exchangeMatchCount - first.exchangeMatchCount
+            );
+        }
 
         showCurrentUser();
 
@@ -1189,6 +1318,10 @@ document
     .getElementById("loadUsersBtn")
     .addEventListener("click", loadModeUsers);
 
+document
+    .getElementById("editModeProfileBtn")
+    .addEventListener("click", editCurrentModeProfile);
+
 function showCurrentUser() {
 
     const nicknameView = document.getElementById("nicknameView");
@@ -1278,10 +1411,19 @@ async function loadModeProfile(userId) {
             return;
         }
 
-        const data = profileDoc.data();
+        const data = mode === "exchange" && users[currentIndex]?.exchangeProfile
+            ? users[currentIndex].exchangeProfile
+            : profileDoc.data();
         const heading = document.createElement("h4");
         heading.textContent = `${config.icon} ${config.title}モード`;
         area.replaceChildren(heading);
+
+        if (mode === "exchange") {
+            const compatibility = document.createElement("p");
+            compatibility.textContent =
+                `🌏 相性 ${Math.min(users[currentIndex].exchangeMatchScore, 100)}%`;
+            area.append(compatibility);
+        }
 
         config.fields.forEach(({ key, label, displayValues }) => {
             const paragraph = document.createElement("p");
@@ -1293,6 +1435,23 @@ async function loadModeProfile(userId) {
                 `${label}: ${displayValue || "未設定"}`;
             area.append(paragraph);
         });
+
+        if (
+            mode === "exchange" &&
+            users[currentIndex].exchangeCommonPoints.length > 0
+        ) {
+            const commonPointsHeading = document.createElement("h4");
+            commonPointsHeading.textContent = "✨ 共通ポイント";
+            area.append(commonPointsHeading);
+
+            users[currentIndex].exchangeCommonPoints.forEach((point) => {
+                const paragraph = document.createElement("p");
+                paragraph.textContent =
+                    `${point.learner}は${point.language}を学びたい` +
+                    `・${point.speaker}は${point.language}を話せます`;
+                area.append(paragraph);
+            });
+        }
     } catch (error) {
         if (currentMode === mode && users[currentIndex]?.id === userId) {
             area.textContent = "プロフィールを読み込めませんでした";

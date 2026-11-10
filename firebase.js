@@ -23,7 +23,8 @@ import {
     where,
     arrayUnion,
     orderBy,
-    onSnapshot
+    onSnapshot,
+    runTransaction
 }
 from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 
@@ -55,6 +56,8 @@ let currentIndex = 0;
 let currentMode = null;
 let activeMatch = null;
 let unsubscribeMessages = null;
+let unsubscribeActiveMatch = null;
+const MAX_MESSAGES_PER_USER = 5;
 
 console.log("Firebase接続成功");
 
@@ -62,6 +65,10 @@ function stopListeningToMessages() {
     if (unsubscribeMessages) {
         unsubscribeMessages();
         unsubscribeMessages = null;
+    }
+    if (unsubscribeActiveMatch) {
+        unsubscribeActiveMatch();
+        unsubscribeActiveMatch = null;
     }
     activeMatch = null;
 }
@@ -761,6 +768,18 @@ async function showMatchList() {
             name.textContent = profile.nickname || "名前未設定";
             info.append(modeLabel, name);
 
+            const unreadCount = Number(
+                match.user1 === currentUser.uid
+                    ? match.user1Unread
+                    : match.user2Unread
+            ) || 0;
+            if (unreadCount > 0) {
+                const badge = document.createElement("span");
+                badge.className = "unreadBadge";
+                badge.textContent = `🔴 ${unreadCount}件`;
+                info.append(badge);
+            }
+
             const profileButton = document.createElement("button");
             profileButton.type = "button";
             profileButton.textContent = "プロフィール";
@@ -822,7 +841,14 @@ document
         document.getElementById("matchListPage").classList.remove("hidden");
     });
 
-function openChat(match, partnerId, partnerName) {
+async function openChat(match, partnerId, partnerName) {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+        alert("ログインしてください");
+        return;
+    }
+
+    stopListeningToMessages();
     activeMatch = { id: match.id, partnerId, partnerName };
     hideModePages();
     document.getElementById("matchListPage").classList.add("hidden");
@@ -832,11 +858,60 @@ function openChat(match, partnerId, partnerName) {
     document.getElementById("chatPage").classList.remove("hidden");
     document.getElementById("mainNavigation").classList.add("hidden");
     document.getElementById("chatPartnerName").textContent = partnerName;
+    document.getElementById("messageLimitView").textContent =
+        `残り送信回数: ${MAX_MESSAGES_PER_USER} / ${MAX_MESSAGES_PER_USER}`;
+    document.getElementById("messageLimitView").dataset.remaining =
+        String(MAX_MESSAGES_PER_USER);
+    document.getElementById("sendMessageBtn").disabled = false;
     document.getElementById("chatMessages").textContent = "読み込み中...";
 
-    if (unsubscribeMessages) {
-        unsubscribeMessages();
+    const matchRef = doc(db, "matches", match.id);
+    const unreadField = match.user1 === currentUser.uid
+        ? "user1Unread"
+        : "user2Unread";
+    try {
+        await runTransaction(db, async (transaction) => {
+            const matchSnapshot = await transaction.get(matchRef);
+            if (!matchSnapshot.exists()) {
+                throw new Error("マッチ情報が見つかりません");
+            }
+
+            const matchData = matchSnapshot.data();
+            const updates = { [unreadField]: 0 };
+            [
+                "user1Unread",
+                "user2Unread",
+                "user1MessageCount",
+                "user2MessageCount"
+            ].forEach((field) => {
+                if (typeof matchData[field] !== "number") {
+                    updates[field] = 0;
+                }
+            });
+            transaction.update(matchRef, updates);
+        });
+    } catch (error) {
+        alert(error.message);
     }
+
+    if (
+        auth.currentUser?.uid !== currentUser.uid ||
+        activeMatch?.id !== match.id
+    ) {
+        return;
+    }
+
+    unsubscribeActiveMatch = onSnapshot(
+        matchRef,
+        (snapshot) => {
+            if (snapshot.exists() && activeMatch?.id === match.id) {
+                updateMessageLimitView(snapshot.data(), currentUser.uid);
+            }
+        },
+        (error) => {
+            alert(error.message);
+        }
+    );
 
     const messagesQuery = query(
         collection(db, "matches", match.id, "messages"),
@@ -851,6 +926,19 @@ function openChat(match, partnerId, partnerName) {
             alert(error.message);
         }
     );
+}
+
+function updateMessageLimitView(matchData, userId) {
+    const countField = matchData.user1 === userId
+        ? "user1MessageCount"
+        : "user2MessageCount";
+    const count = Math.max(0, Number(matchData[countField]) || 0);
+    const remaining = Math.max(0, MAX_MESSAGES_PER_USER - count);
+    const limitView = document.getElementById("messageLimitView");
+    limitView.textContent =
+        `残り送信回数: ${remaining} / ${MAX_MESSAGES_PER_USER}`;
+    limitView.dataset.remaining = String(remaining);
+    document.getElementById("sendMessageBtn").disabled = remaining === 0;
 }
 
 function renderMessages(messageDocs) {
@@ -902,22 +990,77 @@ document
             return;
         }
 
+        const matchId = activeMatch.id;
         const sendButton = event.currentTarget;
         sendButton.disabled = true;
         try {
-            await addDoc(
-                collection(db, "matches", activeMatch.id, "messages"),
-                {
+            const matchRef = doc(db, "matches", matchId);
+            const messageRef = doc(
+                collection(db, "matches", matchId, "messages")
+            );
+            const remaining = await runTransaction(db, async (transaction) => {
+                const matchSnapshot = await transaction.get(matchRef);
+                if (!matchSnapshot.exists()) {
+                    throw new Error("マッチ情報が見つかりません");
+                }
+
+                const matchData = matchSnapshot.data();
+                let countField;
+                let unreadField;
+                if (matchData.user1 === currentUser.uid) {
+                    countField = "user1MessageCount";
+                    unreadField = "user2Unread";
+                } else if (matchData.user2 === currentUser.uid) {
+                    countField = "user2MessageCount";
+                    unreadField = "user1Unread";
+                } else {
+                    throw new Error("このマッチにメッセージを送信できません");
+                }
+
+                const messageCount = Math.max(
+                    0,
+                    Number(matchData[countField]) || 0
+                );
+                if (messageCount >= MAX_MESSAGES_PER_USER) {
+                    return null;
+                }
+
+                transaction.set(messageRef, {
                     senderId: currentUser.uid,
                     text,
                     createdAt: new Date()
+                });
+                transaction.update(matchRef, {
+                    [countField]: messageCount + 1,
+                    [unreadField]: (Number(matchData[unreadField]) || 0) + 1
+                });
+                return MAX_MESSAGES_PER_USER - messageCount - 1;
+            });
+
+            if (remaining === null) {
+                const matchSnapshot = await getDoc(matchRef);
+                if (matchSnapshot.exists() && activeMatch?.id === matchId) {
+                    updateMessageLimitView(matchSnapshot.data(), currentUser.uid);
                 }
-            );
-            document.getElementById("messageInput").value = "";
+                alert("送信上限に達しました");
+                return;
+            }
+
+            if (activeMatch?.id === matchId) {
+                const limitView = document.getElementById("messageLimitView");
+                limitView.textContent =
+                    `残り送信回数: ${remaining} / ${MAX_MESSAGES_PER_USER}`;
+                limitView.dataset.remaining = String(remaining);
+                sendButton.disabled = remaining === 0;
+                document.getElementById("messageInput").value = "";
+            }
         } catch (error) {
             alert(error.message);
         } finally {
-            sendButton.disabled = false;
+            if (activeMatch?.id === matchId) {
+                sendButton.disabled =
+                    Number(document.getElementById("messageLimitView").dataset.remaining) <= 0;
+            }
         }
     });
 
@@ -932,6 +1075,7 @@ function showCurrentUser() {
     const departmentView = document.getElementById("departmentView");
     const gradeView = document.getElementById("gradeView");
     const bioView = document.getElementById("bioView");
+    const modeProfileArea = document.getElementById("modeProfileArea");
     const profileImageView = document.getElementById("profileImageView");
     const passButton = document.getElementById("passBtn");
     const likeButton = document.getElementById("likeBtn");
@@ -945,6 +1089,7 @@ function showCurrentUser() {
         departmentView.textContent = "";
         gradeView.textContent = "";
         bioView.textContent = "";
+        modeProfileArea.textContent = "";
         profileImageView.removeAttribute("src");
         profileImageView.classList.add("hidden");
         return;
@@ -956,12 +1101,15 @@ function showCurrentUser() {
         departmentView.textContent = "";
         gradeView.textContent = "";
         bioView.textContent = "";
+        modeProfileArea.textContent = "";
         profileImageView.removeAttribute("src");
         profileImageView.classList.add("hidden");
         return;
     }
 
     const user = users[currentIndex];
+    modeProfileArea.textContent = "";
+    void loadModeProfile(user.id);
     nicknameView.textContent = user.nickname || "";
     facultyView.textContent = user.faculty || "";
     departmentView.textContent = user.department || "";
@@ -976,6 +1124,62 @@ function showCurrentUser() {
     }
     passButton.disabled = false;
     likeButton.disabled = false;
+}
+
+async function loadModeProfile(userId) {
+    const area = document.getElementById("modeProfileArea");
+    const mode = currentMode;
+
+    if (!mode || !["relationship", "study"].includes(mode)) {
+        area.textContent = "";
+        return;
+    }
+
+    area.textContent = "読み込み中...";
+
+    try {
+        const profileDoc = await getDoc(
+            doc(db, `${mode}Profiles`, userId)
+        );
+        if (currentMode !== mode || users[currentIndex]?.id !== userId) {
+            return;
+        }
+
+        if (!profileDoc.exists()) {
+            area.textContent = "プロフィール未登録";
+            return;
+        }
+
+        const data = profileDoc.data();
+        const heading = document.createElement("h4");
+        heading.textContent = mode === "relationship"
+            ? "❤️ 人間関係モード"
+            : "📚 学習モード";
+        area.replaceChildren(heading);
+
+        const fields = mode === "relationship"
+            ? [
+                ["募集目的", data.goal],
+                ["休日", data.weekendStyle],
+                ["どんな人と会いたい？", data.idealPartner]
+            ]
+            : [
+                ["学習内容", data.studyTopic],
+                ["頻度", data.studyFrequency],
+                ["目標", data.studyGoal]
+            ];
+
+        fields.forEach(([label, value]) => {
+            const paragraph = document.createElement("p");
+            paragraph.textContent = `${label}: ${value || "未設定"}`;
+            area.append(paragraph);
+        });
+    } catch (error) {
+        if (currentMode === mode && users[currentIndex]?.id === userId) {
+            area.textContent = "プロフィールを読み込めませんでした";
+            alert(error.message);
+        }
+    }
 }
 
 document
@@ -1068,10 +1272,28 @@ document
                     forwardMatches.docs[0] || reverseMatches.docs[0];
 
                 if (existingMatch) {
-                    await updateDoc(
-                        doc(db, "matches", existingMatch.id),
-                        { modes: arrayUnion(mode) }
-                    );
+                    const matchRef = doc(db, "matches", existingMatch.id);
+                    await runTransaction(db, async (transaction) => {
+                        const matchSnapshot = await transaction.get(matchRef);
+                        if (!matchSnapshot.exists()) {
+                            throw new Error("マッチ情報が見つかりません");
+                        }
+                        const matchData = matchSnapshot.data();
+                        const updates = {
+                            modes: arrayUnion(mode)
+                        };
+                        [
+                            "user1Unread",
+                            "user2Unread",
+                            "user1MessageCount",
+                            "user2MessageCount"
+                        ].forEach((field) => {
+                            if (typeof matchData[field] !== "number") {
+                                updates[field] = 0;
+                            }
+                        });
+                        transaction.update(matchRef, updates);
+                    });
                 } else {
                     await addDoc(
                         collection(db, "matches"),
@@ -1079,6 +1301,10 @@ document
                             user1: currentUser.uid,
                             user2: targetUser.id,
                             modes: [mode],
+                            user1Unread: 0,
+                            user2Unread: 0,
+                            user1MessageCount: 0,
+                            user2MessageCount: 0,
                             createdAt: new Date()
                         }
                     );

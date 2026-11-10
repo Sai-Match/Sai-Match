@@ -103,6 +103,12 @@
             min-width: 0;
         }
 
+        .unreadBadge {
+            display: block;
+            color: #c00;
+            font-weight: bold;
+        }
+
         .matchCardActions {
             display: flex;
             gap: 8px;
@@ -272,6 +278,10 @@
 
                 <p id="bioView"></p>
 
+                <hr>
+
+                <div id="modeProfileArea"></div>
+
                 <div class="cardActions">
                     <button id="passBtn">
                         ❌
@@ -366,6 +376,7 @@
         <div id="chatPage" class="hidden">
             <button id="backToMatchesBtn" type="button">マッチ一覧に戻る</button>
             <h2 id="chatPartnerName"></h2>
+            <p id="messageLimitView">残り送信回数: 5 / 5</p>
             <div id="chatMessages" class="chatMessages"></div>
             <textarea id="messageInput" placeholder="メッセージを入力"></textarea>
             <button id="sendMessageBtn" type="button">送信</button>

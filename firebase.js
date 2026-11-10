@@ -58,6 +58,86 @@ let activeMatch = null;
 let unsubscribeMessages = null;
 let unsubscribeActiveMatch = null;
 const MAX_MESSAGES_PER_USER = 5;
+const MODE_CONFIG = {
+    relationship: {
+        title: "人間関係",
+        icon: "❤️",
+        profilePageId: "relationshipProfilePage",
+        fields: [
+            {
+                key: "goal",
+                label: "募集目的",
+                inputId: "relationshipGoal",
+                displayValues: {
+                    friend: "友達募集",
+                    lover: "恋人募集",
+                    both: "両方"
+                }
+            },
+            { key: "weekendStyle", label: "休日", inputId: "weekendStyle" },
+            {
+                key: "idealPartner",
+                label: "どんな人と会いたい？",
+                inputId: "idealPartner"
+            }
+        ]
+    },
+    study: {
+        title: "学習",
+        icon: "📚",
+        profilePageId: "studyProfilePage",
+        fields: [
+            { key: "studyTopic", label: "学習内容", inputId: "studyTopic" },
+            {
+                key: "studyFrequency",
+                label: "頻度",
+                inputId: "studyFrequency",
+                displayValues: {
+                    week1: "週1回",
+                    week2: "週2回",
+                    week3: "週3回以上"
+                }
+            },
+            { key: "studyGoal", label: "目標", inputId: "studyGoal" }
+        ]
+    },
+    hobby: {
+        title: "趣味",
+        icon: "🎮",
+        profilePageId: "hobbyProfilePage",
+        fields: [
+            { key: "hobby", label: "好きな趣味", inputId: "hobby" },
+            {
+                key: "frequency",
+                label: "活動頻度",
+                inputId: "hobbyFrequency"
+            },
+            {
+                key: "activity",
+                label: "一緒にやりたいこと",
+                inputId: "hobbyActivity"
+            }
+        ]
+    },
+    career: {
+        title: "就活",
+        icon: "💼",
+        profilePageId: "careerProfilePage",
+        fields: [
+            {
+                key: "graduateYear",
+                label: "卒業年度",
+                inputId: "graduateYear"
+            },
+            { key: "industry", label: "志望業界", inputId: "industry" },
+            {
+                key: "consultation",
+                label: "相談したい内容",
+                inputId: "consultation"
+            }
+        ]
+    }
+};
 
 console.log("Firebase接続成功");
 
@@ -75,8 +155,9 @@ function stopListeningToMessages() {
 
 function hideModePages() {
     document.getElementById("modeSelectPage").classList.add("hidden");
-    document.getElementById("relationshipProfilePage").classList.add("hidden");
-    document.getElementById("studyProfilePage").classList.add("hidden");
+    Object.values(MODE_CONFIG).forEach(({ profilePageId }) => {
+        document.getElementById(profilePageId).classList.add("hidden");
+    });
 }
 
 // ====================
@@ -292,7 +373,7 @@ async function showProfile(user, profileData = null, showNavigation = false) {
 }
 
 async function showUserList(user, mode = currentMode) {
-    if (!user || !mode || !["relationship", "study"].includes(mode)) {
+    if (!user || !MODE_CONFIG[mode]) {
         showModeSelect();
         return;
     }
@@ -306,16 +387,7 @@ async function showUserList(user, mode = currentMode) {
     }
 
     if (!modeProfileSnapshot.exists()) {
-        hideModePages();
-        document.getElementById("matchListPage").classList.add("hidden");
-        document.getElementById("matchProfilePage").classList.add("hidden");
-        document.getElementById("chatPage").classList.add("hidden");
-        document.getElementById(
-            mode === "relationship"
-                ? "relationshipProfilePage"
-                : "studyProfilePage"
-        ).classList.remove("hidden");
-        document.getElementById("mainNavigation").classList.remove("hidden");
+        showModeProfileForm(mode);
         return;
     }
 
@@ -334,6 +406,20 @@ async function showUserList(user, mode = currentMode) {
     await loadModeUsers();
 }
 
+function showModeProfileForm(mode) {
+    stopListeningToMessages();
+    hideModePages();
+    document.getElementById("loginForm").classList.add("hidden");
+    document.getElementById("registerForm").classList.add("hidden");
+    document.getElementById("profileForm").classList.add("hidden");
+    document.getElementById("userListPage").classList.add("hidden");
+    document.getElementById("matchListPage").classList.add("hidden");
+    document.getElementById("matchProfilePage").classList.add("hidden");
+    document.getElementById("chatPage").classList.add("hidden");
+    document.getElementById(MODE_CONFIG[mode].profilePageId).classList.remove("hidden");
+    document.getElementById("mainNavigation").classList.remove("hidden");
+}
+
 function showModeSelect() {
     stopListeningToMessages();
     currentMode = null;
@@ -349,7 +435,7 @@ function showModeSelect() {
     document.getElementById("mainNavigation").classList.remove("hidden");
 }
 
-async function openRelationshipMode() {
+async function openMode(mode) {
     const user = auth.currentUser;
     if (!user) {
         alert("ログインしてください");
@@ -357,65 +443,66 @@ async function openRelationshipMode() {
     }
 
     try {
-        currentMode = "relationship";
-        const profileSnapshot = await getDoc(
-            doc(db, "relationshipProfiles", user.uid)
-        );
-        if (
-            auth.currentUser?.uid !== user.uid ||
-            currentMode !== "relationship"
-        ) {
-            return;
+        if (!MODE_CONFIG[mode]) {
+            throw new Error("選択したモードは利用できません");
         }
 
-        if (!profileSnapshot.exists()) {
-            hideModePages();
-            document.getElementById("matchListPage").classList.add("hidden");
-            document.getElementById("matchProfilePage").classList.add("hidden");
-            document.getElementById("chatPage").classList.add("hidden");
-            document.getElementById("relationshipProfilePage").classList.remove("hidden");
-            return;
-        }
-
-        await showUserList(user, "relationship");
+        currentMode = mode;
+        await showUserList(user, mode);
     } catch (error) {
         alert(error.message);
     }
 }
 
-async function openStudyMode() {
-    const user = auth.currentUser;
-    if (!user) {
-        alert("ログインしてください");
-        return;
-    }
+document
+    .getElementById("relationshipModeBtn")
+    .addEventListener("click", () => openMode("relationship"));
 
-    try {
-        currentMode = "study";
-        const profileSnapshot = await getDoc(
-            doc(db, "studyProfiles", user.uid)
-        );
-        if (
-            auth.currentUser?.uid !== user.uid ||
-            currentMode !== "study"
-        ) {
-            return;
-        }
+document
+    .getElementById("studyModeBtn")
+    .addEventListener("click", () => openMode("study"));
 
-        if (!profileSnapshot.exists()) {
-            hideModePages();
-            document.getElementById("matchListPage").classList.add("hidden");
-            document.getElementById("matchProfilePage").classList.add("hidden");
-            document.getElementById("chatPage").classList.add("hidden");
-            document.getElementById("studyProfilePage").classList.remove("hidden");
-            return;
-        }
+document
+    .getElementById("hobbyModeBtn")
+    .addEventListener("click", () => openMode("hobby"));
 
-        await showUserList(user, "study");
-    } catch (error) {
-        alert(error.message);
-    }
-}
+document
+    .getElementById("careerModeBtn")
+    .addEventListener("click", () => openMode("career"));
+
+Object.entries(MODE_CONFIG).forEach(([mode, config]) => {
+    document
+        .getElementById(`save${mode[0].toUpperCase()}${mode.slice(1)}ProfileBtn`)
+        .addEventListener("click", async () => {
+            const user = auth.currentUser;
+            if (!user) {
+                alert("ログインしてください");
+                return;
+            }
+
+            const profile = {};
+            for (const field of config.fields) {
+                const input = document.getElementById(field.inputId);
+                const value = input.value.trim();
+                if (!value) {
+                    alert(`${config.title}プロフィールの項目をすべて入力してください`);
+                    return;
+                }
+                profile[field.key] = value;
+            }
+
+            try {
+                await setDoc(
+                    doc(db, `${mode}Profiles`, user.uid),
+                    profile
+                );
+                alert("保存完了");
+                await showUserList(user, mode);
+            } catch (error) {
+                alert(error.message);
+            }
+        });
+});
 
 onAuthStateChanged(auth, async (user) => {
     if (!user) {
@@ -483,81 +570,6 @@ document
         }
     });
 
-document
-    .getElementById("relationshipModeBtn")
-    .addEventListener("click", openRelationshipMode);
-
-document
-    .getElementById("studyModeBtn")
-    .addEventListener("click", openStudyMode);
-
-document
-    .getElementById("saveRelationshipProfileBtn")
-    .addEventListener("click", async () => {
-        const user = auth.currentUser;
-        if (!user) {
-            alert("ログインしてください");
-            return;
-        }
-
-        const goal = document.getElementById("relationshipGoal").value;
-        const weekendStyle = document.getElementById("weekendStyle").value.trim();
-        const idealPartner = document.getElementById("idealPartner").value.trim();
-        if (!goal || !weekendStyle || !idealPartner) {
-            alert("人間関係プロフィールの項目をすべて入力してください");
-            return;
-        }
-
-        try {
-            await setDoc(
-                doc(db, "relationshipProfiles", user.uid),
-                {
-                    goal,
-                    weekendStyle,
-                    idealPartner
-                }
-            );
-            alert("保存完了");
-            await showUserList(user, "relationship");
-        } catch (error) {
-            alert(error.message);
-        }
-    });
-
-document
-    .getElementById("saveStudyProfileBtn")
-    .addEventListener("click", async () => {
-        const user = auth.currentUser;
-        if (!user) {
-            alert("ログインしてください");
-            return;
-        }
-
-        const studyTopic = document.getElementById("studyTopic").value.trim();
-        const studyFrequency = document.getElementById("studyFrequency").value;
-        const studyGoal = document.getElementById("studyGoal").value.trim();
-        if (!studyTopic || !studyFrequency || !studyGoal) {
-            alert("学習プロフィールの項目をすべて入力してください");
-            return;
-        }
-
-        try {
-            await setDoc(
-                doc(db, "studyProfiles", user.uid),
-                {
-                    studyTopic,
-                    studyFrequency,
-                    studyGoal
-                }
-            );
-            alert("保存完了");
-            await showUserList(user, "study");
-        } catch (error) {
-            alert(error.message);
-        }
-    });
-
-
 // ====================
 // ユーザー一覧
 // ====================
@@ -567,7 +579,7 @@ async function loadModeUsers() {
     const currentUser = auth.currentUser;
     const mode = currentMode;
 
-    if (!currentUser || !mode) {
+    if (!currentUser || !MODE_CONFIG[mode]) {
         showModeSelect();
         return;
     }
@@ -754,15 +766,7 @@ async function showMatchList() {
             info.className = "matchCardInfo";
             const modeLabel = document.createElement("div");
             modeLabel.textContent = (match.modes || [])
-                .map((mode) => {
-                    if (mode === "relationship") {
-                        return "❤️";
-                    }
-                    if (mode === "study") {
-                        return "📚";
-                    }
-                    return "";
-                })
+                .map((mode) => MODE_CONFIG[mode]?.icon || "")
                 .join("");
             const name = document.createElement("strong");
             name.textContent = profile.nickname || "名前未設定";
@@ -1129,8 +1133,9 @@ function showCurrentUser() {
 async function loadModeProfile(userId) {
     const area = document.getElementById("modeProfileArea");
     const mode = currentMode;
+    const config = MODE_CONFIG[mode];
 
-    if (!mode || !["relationship", "study"].includes(mode)) {
+    if (!config) {
         area.textContent = "";
         return;
     }
@@ -1152,26 +1157,14 @@ async function loadModeProfile(userId) {
 
         const data = profileDoc.data();
         const heading = document.createElement("h4");
-        heading.textContent = mode === "relationship"
-            ? "❤️ 人間関係モード"
-            : "📚 学習モード";
+        heading.textContent = `${config.icon} ${config.title}モード`;
         area.replaceChildren(heading);
 
-        const fields = mode === "relationship"
-            ? [
-                ["募集目的", data.goal],
-                ["休日", data.weekendStyle],
-                ["どんな人と会いたい？", data.idealPartner]
-            ]
-            : [
-                ["学習内容", data.studyTopic],
-                ["頻度", data.studyFrequency],
-                ["目標", data.studyGoal]
-            ];
-
-        fields.forEach(([label, value]) => {
+        config.fields.forEach(({ key, label, displayValues }) => {
             const paragraph = document.createElement("p");
-            paragraph.textContent = `${label}: ${value || "未設定"}`;
+            const value = data[key];
+            paragraph.textContent =
+                `${label}: ${displayValues?.[value] || value || "未設定"}`;
             area.append(paragraph);
         });
     } catch (error) {

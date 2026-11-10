@@ -148,6 +148,22 @@
             color: #666;
             font-size: 0.8em;
         }
+
+        .noticeBox {
+            margin-top: 15px;
+            padding: 10px;
+            border: 2px solid red;
+            background: #fff0f0;
+            color: red;
+        }
+
+        .noticeBox h3 {
+            margin-top: 0;
+        }
+
+        .noticeBox ul {
+            padding-left: 20px;
+        }
     </style>
 </head>
 
@@ -173,6 +189,18 @@
             <button id="loginBtn">
                 ログイン
             </button>
+
+            <div class="noticeBox">
+                <h3>【重要なお知らせ】</h3>
+                <ul>
+                    <li>現在Sai-Matchは開発途中の試験運用版です。</li>
+                    <li>個人情報の管理は十分ではありません。本名・電話番号・実際のメールアドレスなど個人を特定できる情報は入力しないでください。メールアドレスは xxx@xxx.xxx の形式であれば架空のアドレスを設定できます。</li>
+                    <li>今後も適宜、機能追加や仕様変更を行います。</li>
+                    <li>アプリ内でマッチした相手と実際に会わないでください。</li>
+                    <li>現在アカウント削除機能はありません。</li>
+                    <li>2026年12月中旬までに全データを削除する予定です。</li>
+                </ul>
+            </div>
 
             <p>
                 アカウントをお持ちでないですか？
@@ -202,6 +230,19 @@
             <button id="registerBtn">
                 新規登録
             </button>
+
+            <div class="noticeBox">
+                <h3>【重要なお知らせ】</h3>
+                <ul>
+                    <li>現在SaiMatchは開発途中の試験運用版です。</li>
+                    <li>個人情報の管理は十分ではありません。本名・電話番号・実際のメールアドレスなど個人を特定できる情報は入力しないでください。</li>
+                    <li>メールアドレスは xxx@xxx.xxx の形式であれば架空のアドレスで構いません。</li>
+                    <li>今後も機能追加や仕様変更を行います。</li>
+                    <li>アプリ内でマッチした相手と実際に会わないでください。</li>
+                    <li>現在アカウント削除機能はありません。</li>
+                    <li>2026年12月中旬頃に全データを削除する予定です。</li>
+                </ul>
+            </div>
 
             <p>
                 既にアカウントがありますか？
@@ -315,6 +356,12 @@
             <button id="studyModeBtn" type="button">
                 📚 学習モード
             </button>
+            <button id="hobbyModeBtn" type="button">
+                🎮 趣味モード
+            </button>
+            <button id="careerModeBtn" type="button">
+                💼 就活モード
+            </button>
         </div>
 
         <div id="relationshipProfilePage" class="hidden">
@@ -354,6 +401,42 @@
                 id="studyGoal"
                 placeholder="目標">
             <button id="saveStudyProfileBtn" type="button">
+                保存
+            </button>
+        </div>
+
+        <div id="hobbyProfilePage" class="hidden">
+            <h2>趣味モード登録</h2>
+            <input
+                type="text"
+                id="hobby"
+                placeholder="好きな趣味">
+            <input
+                type="text"
+                id="hobbyFrequency"
+                placeholder="活動頻度">
+            <textarea
+                id="hobbyActivity"
+                placeholder="一緒にやりたいこと"></textarea>
+            <button id="saveHobbyProfileBtn" type="button">
+                保存
+            </button>
+        </div>
+
+        <div id="careerProfilePage" class="hidden">
+            <h2>就活モード登録</h2>
+            <input
+                type="text"
+                id="graduateYear"
+                placeholder="卒業年度">
+            <input
+                type="text"
+                id="industry"
+                placeholder="志望業界">
+            <textarea
+                id="consultation"
+                placeholder="相談したい内容"></textarea>
+            <button id="saveCareerProfileBtn" type="button">
                 保存
             </button>
         </div>

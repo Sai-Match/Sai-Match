@@ -585,12 +585,16 @@ async function loadModeUsers() {
     }
 
     try {
-        const [modeProfiles, passes] = await Promise.all([
+        const [modeProfiles, passes, blockedUsers] = await Promise.all([
             getDocs(collection(db, `${mode}Profiles`)),
             getDocs(query(
                 collection(db, "passes"),
                 where("fromUserId", "==", currentUser.uid),
                 where("mode", "==", mode)
+            )),
+            getDocs(query(
+                collection(db, "blocks"),
+                where("fromUserId", "==", currentUser.uid)
             ))
         ]);
 
@@ -609,6 +613,9 @@ async function loadModeUsers() {
         const cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - 30);
         const passedUserIds = new Set();
+        const blockedUserIds = new Set(
+            blockedUsers.docs.map((blockDoc) => blockDoc.data().toUserId)
+        );
         passes.forEach((passDoc) => {
             const pass = passDoc.data();
             const createdAt = pass.createdAt?.toDate
@@ -628,6 +635,7 @@ async function loadModeUsers() {
             modeProfiles.docs
                 .filter((profileDoc) =>
                     profileDoc.id !== currentUser.uid &&
+                    !blockedUserIds.has(profileDoc.id) &&
                     !passedUserIds.has(profileDoc.id)
                 )
                 .map(async (profileDoc) => {
@@ -862,10 +870,11 @@ async function openChat(match, partnerId, partnerName) {
     document.getElementById("chatPage").classList.remove("hidden");
     document.getElementById("mainNavigation").classList.add("hidden");
     document.getElementById("chatPartnerName").textContent = partnerName;
-    document.getElementById("messageLimitView").textContent =
-        `残り送信回数: ${MAX_MESSAGES_PER_USER} / ${MAX_MESSAGES_PER_USER}`;
-    document.getElementById("messageLimitView").dataset.remaining =
+    document.getElementById("messageRemain").textContent =
+        `残り送信回数 ${MAX_MESSAGES_PER_USER}/${MAX_MESSAGES_PER_USER}`;
+    document.getElementById("messageRemain").dataset.remaining =
         String(MAX_MESSAGES_PER_USER);
+    document.getElementById("messageLimitNotice").classList.add("hidden");
     document.getElementById("sendMessageBtn").disabled = false;
     document.getElementById("chatMessages").textContent = "読み込み中...";
 
@@ -938,10 +947,14 @@ function updateMessageLimitView(matchData, userId) {
         : "user2MessageCount";
     const count = Math.max(0, Number(matchData[countField]) || 0);
     const remaining = Math.max(0, MAX_MESSAGES_PER_USER - count);
-    const limitView = document.getElementById("messageLimitView");
+    const limitView = document.getElementById("messageRemain");
     limitView.textContent =
-        `残り送信回数: ${remaining} / ${MAX_MESSAGES_PER_USER}`;
+        `残り送信回数 ${remaining}/${MAX_MESSAGES_PER_USER}`;
     limitView.dataset.remaining = String(remaining);
+    document.getElementById("messageLimitNotice").classList.toggle(
+        "hidden",
+        remaining > 0
+    );
     document.getElementById("sendMessageBtn").disabled = remaining === 0;
 }
 
@@ -1051,19 +1064,26 @@ document
             }
 
             if (activeMatch?.id === matchId) {
-                const limitView = document.getElementById("messageLimitView");
+                const limitView = document.getElementById("messageRemain");
                 limitView.textContent =
-                    `残り送信回数: ${remaining} / ${MAX_MESSAGES_PER_USER}`;
+                    `残り送信回数 ${remaining}/${MAX_MESSAGES_PER_USER}`;
                 limitView.dataset.remaining = String(remaining);
+                document.getElementById("messageLimitNotice").classList.toggle(
+                    "hidden",
+                    remaining > 0
+                );
                 sendButton.disabled = remaining === 0;
                 document.getElementById("messageInput").value = "";
+            }
+            if (remaining === 1) {
+                alert("残り1回です。\n\n連絡先の交換はしましたか？");
             }
         } catch (error) {
             alert(error.message);
         } finally {
             if (activeMatch?.id === matchId) {
                 sendButton.disabled =
-                    Number(document.getElementById("messageLimitView").dataset.remaining) <= 0;
+                    Number(document.getElementById("messageRemain").dataset.remaining) <= 0;
             }
         }
     });
@@ -1083,9 +1103,11 @@ function showCurrentUser() {
     const profileImageView = document.getElementById("profileImageView");
     const passButton = document.getElementById("passBtn");
     const likeButton = document.getElementById("likeBtn");
+    const blockButton = document.getElementById("blockBtn");
 
     passButton.disabled = true;
     likeButton.disabled = true;
+    blockButton.disabled = true;
 
     if (users.length === 0) {
         nicknameView.textContent = "ユーザーがいません";
@@ -1128,6 +1150,7 @@ function showCurrentUser() {
     }
     passButton.disabled = false;
     likeButton.disabled = false;
+    blockButton.disabled = false;
 }
 
 async function loadModeProfile(userId) {
@@ -1320,5 +1343,42 @@ document
             alert(error.message);
             showCurrentUser();
 
+        }
+    });
+
+document
+    .getElementById("blockBtn")
+    .addEventListener("click", async (event) => {
+        const currentUser = auth.currentUser;
+        const targetUser = users[currentIndex];
+        const mode = currentMode;
+
+        if (!currentUser || !targetUser || !mode) {
+            alert("ブロックするユーザーがいません");
+            return;
+        }
+
+        const blockButton = event.currentTarget;
+        blockButton.disabled = true;
+        try {
+            await addDoc(collection(db, "blocks"), {
+                fromUserId: currentUser.uid,
+                toUserId: targetUser.id,
+                createdAt: new Date()
+            });
+
+            if (
+                auth.currentUser?.uid !== currentUser.uid ||
+                currentMode !== mode
+            ) {
+                return;
+            }
+
+            alert("ブロックしました");
+            currentIndex++;
+            showCurrentUser();
+        } catch (error) {
+            alert(error.message);
+            showCurrentUser();
         }
     });

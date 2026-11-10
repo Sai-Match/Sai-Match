@@ -58,6 +58,12 @@ let activeMatch = null;
 let unsubscribeMessages = null;
 let unsubscribeActiveMatch = null;
 const MAX_MESSAGES_PER_USER = 5;
+const GENDER_LABELS = {
+    male: "男性",
+    female: "女性",
+    other: "その他",
+    no_answer: "回答しない"
+};
 const MODE_CONFIG = {
     relationship: {
         title: "人間関係",
@@ -136,6 +142,39 @@ const MODE_CONFIG = {
                 inputId: "consultation"
             }
         ]
+    },
+    exchange: {
+        title: "国際交流",
+        icon: "🌏",
+        profilePageId: "exchangeProfilePage",
+        fields: [
+            {
+                key: "exchangeType",
+                label: "属性",
+                inputId: "exchangeType",
+                displayValues: {
+                    international: "留学生",
+                    japanese: "日本人学生"
+                }
+            },
+            {
+                key: "speakLanguages",
+                label: "話せる言語",
+                inputId: "exchangeSpeakLanguages",
+                inputType: "checkboxes"
+            },
+            {
+                key: "learnLanguages",
+                label: "学びたい言語",
+                inputId: "exchangeLearnLanguages",
+                inputType: "checkboxes"
+            },
+            {
+                key: "purpose",
+                label: "国際交流目的",
+                inputId: "exchangePurpose"
+            }
+        ]
     }
 };
 
@@ -174,6 +213,13 @@ document
         const password =
             document.getElementById("registerPassword").value;
 
+        const passwordConfirm =
+            document.getElementById("registerPasswordConfirm").value;
+        if (password !== passwordConfirm) {
+            alert("パスワードが一致しません");
+            return;
+        }
+
         registrationInProgress = true;
 
         try {
@@ -194,6 +240,7 @@ document
                     nickname: "",
                     faculty: "",
                     department: "",
+                    gender: "",
                     grade: "",
                     bio: "",
                     profileImageUrl: "",
@@ -245,6 +292,9 @@ document
         const department =
             document.getElementById("department").value;
 
+        const gender =
+            document.getElementById("gender").value;
+
         const grade =
             document.getElementById("grade").value;
 
@@ -274,6 +324,7 @@ document
                     nickname: nickname,
                     faculty: faculty,
                     department: department,
+                    gender,
                     grade: grade,
                     bio: bio,
                     profileImageUrl: imageUrl
@@ -364,6 +415,7 @@ async function showProfile(user, profileData = null, showNavigation = false) {
     document.getElementById("nickname").value = profileData.nickname || "";
     document.getElementById("faculty").value = profileData.faculty || "";
     document.getElementById("department").value = profileData.department || "";
+    document.getElementById("gender").value = profileData.gender || "";
     document.getElementById("grade").value = profileData.grade || "";
     document.getElementById("bio").value = profileData.bio || "";
     document.getElementById("profileImage").value = "";
@@ -470,6 +522,10 @@ document
     .getElementById("careerModeBtn")
     .addEventListener("click", () => openMode("career"));
 
+document
+    .getElementById("exchangeModeBtn")
+    .addEventListener("click", () => openMode("exchange"));
+
 Object.entries(MODE_CONFIG).forEach(([mode, config]) => {
     document
         .getElementById(`save${mode[0].toUpperCase()}${mode.slice(1)}ProfileBtn`)
@@ -482,9 +538,12 @@ Object.entries(MODE_CONFIG).forEach(([mode, config]) => {
 
             const profile = {};
             for (const field of config.fields) {
-                const input = document.getElementById(field.inputId);
-                const value = input.value.trim();
-                if (!value) {
+                const value = field.inputType === "checkboxes"
+                    ? [...document.querySelectorAll(
+                        `input[name="${field.inputId}"]:checked`
+                    )].map((input) => input.value)
+                    : document.getElementById(field.inputId).value.trim();
+                if (value.length === 0) {
                     alert(`${config.title}プロフィールの項目をすべて入力してください`);
                     return;
                 }
@@ -840,6 +899,10 @@ function showMatchProfile(profile) {
         profile.faculty || "";
     document.getElementById("matchProfileDepartment").textContent =
         profile.department || "";
+    document.getElementById("matchProfileGender").textContent =
+        GENDER_LABELS[profile.gender]
+            ? `性別: ${GENDER_LABELS[profile.gender]}`
+            : "";
     document.getElementById("matchProfileGrade").textContent =
         profile.grade ? `${profile.grade}年` : "";
     document.getElementById("matchProfileBio").textContent =
@@ -876,6 +939,7 @@ async function openChat(match, partnerId, partnerName) {
         String(MAX_MESSAGES_PER_USER);
     document.getElementById("messageLimitNotice").classList.add("hidden");
     document.getElementById("sendMessageBtn").disabled = false;
+    document.getElementById("blockUserBtn").disabled = false;
     document.getElementById("chatMessages").textContent = "読み込み中...";
 
     const matchRef = doc(db, "matches", match.id);
@@ -1089,6 +1153,39 @@ document
     });
 
 document
+    .getElementById("blockUserBtn")
+    .addEventListener("click", async (event) => {
+        const currentUser = auth.currentUser;
+        const match = activeMatch;
+        if (!currentUser || !match) {
+            return;
+        }
+
+        const blockButton = event.currentTarget;
+        blockButton.disabled = true;
+        try {
+            await addDoc(collection(db, "blocks"), {
+                fromUserId: currentUser.uid,
+                toUserId: match.partnerId,
+                createdAt: new Date()
+            });
+
+            if (
+                auth.currentUser?.uid === currentUser.uid &&
+                activeMatch?.id === match.id
+            ) {
+                alert("ブロックしました");
+                await showMatchList();
+            }
+        } catch (error) {
+            alert(error.message);
+            if (activeMatch?.id === match.id) {
+                blockButton.disabled = false;
+            }
+        }
+    });
+
+document
     .getElementById("loadUsersBtn")
     .addEventListener("click", loadModeUsers);
 
@@ -1103,16 +1200,15 @@ function showCurrentUser() {
     const profileImageView = document.getElementById("profileImageView");
     const passButton = document.getElementById("passBtn");
     const likeButton = document.getElementById("likeBtn");
-    const blockButton = document.getElementById("blockBtn");
 
     passButton.disabled = true;
     likeButton.disabled = true;
-    blockButton.disabled = true;
 
     if (users.length === 0) {
         nicknameView.textContent = "ユーザーがいません";
         facultyView.textContent = "";
         departmentView.textContent = "";
+        document.getElementById("genderView").textContent = "";
         gradeView.textContent = "";
         bioView.textContent = "";
         modeProfileArea.textContent = "";
@@ -1125,6 +1221,7 @@ function showCurrentUser() {
         nicknameView.textContent = "全員見終わりました";
         facultyView.textContent = "";
         departmentView.textContent = "";
+        document.getElementById("genderView").textContent = "";
         gradeView.textContent = "";
         bioView.textContent = "";
         modeProfileArea.textContent = "";
@@ -1139,6 +1236,10 @@ function showCurrentUser() {
     nicknameView.textContent = user.nickname || "";
     facultyView.textContent = user.faculty || "";
     departmentView.textContent = user.department || "";
+    document.getElementById("genderView").textContent =
+        GENDER_LABELS[user.gender]
+            ? `性別: ${GENDER_LABELS[user.gender]}`
+            : "";
     gradeView.textContent = `${user.grade || ""}年`;
     bioView.textContent = user.bio || "";
     if (user.profileImageUrl) {
@@ -1150,7 +1251,6 @@ function showCurrentUser() {
     }
     passButton.disabled = false;
     likeButton.disabled = false;
-    blockButton.disabled = false;
 }
 
 async function loadModeProfile(userId) {
@@ -1186,8 +1286,11 @@ async function loadModeProfile(userId) {
         config.fields.forEach(({ key, label, displayValues }) => {
             const paragraph = document.createElement("p");
             const value = data[key];
+            const displayValue = Array.isArray(value)
+                ? value.join("、")
+                : displayValues?.[value] || value;
             paragraph.textContent =
-                `${label}: ${displayValues?.[value] || value || "未設定"}`;
+                `${label}: ${displayValue || "未設定"}`;
             area.append(paragraph);
         });
     } catch (error) {
@@ -1343,42 +1446,5 @@ document
             alert(error.message);
             showCurrentUser();
 
-        }
-    });
-
-document
-    .getElementById("blockBtn")
-    .addEventListener("click", async (event) => {
-        const currentUser = auth.currentUser;
-        const targetUser = users[currentIndex];
-        const mode = currentMode;
-
-        if (!currentUser || !targetUser || !mode) {
-            alert("ブロックするユーザーがいません");
-            return;
-        }
-
-        const blockButton = event.currentTarget;
-        blockButton.disabled = true;
-        try {
-            await addDoc(collection(db, "blocks"), {
-                fromUserId: currentUser.uid,
-                toUserId: targetUser.id,
-                createdAt: new Date()
-            });
-
-            if (
-                auth.currentUser?.uid !== currentUser.uid ||
-                currentMode !== mode
-            ) {
-                return;
-            }
-
-            alert("ブロックしました");
-            currentIndex++;
-            showCurrentUser();
-        } catch (error) {
-            alert(error.message);
-            showCurrentUser();
         }
     });

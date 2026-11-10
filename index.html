@@ -36,6 +36,18 @@
             box-sizing: border-box;
         }
 
+        #exchangeProfilePage fieldset label {
+            display: inline-flex;
+            align-items: center;
+            margin: 4px 10px 4px 0;
+        }
+
+        #exchangeProfilePage input[type="checkbox"] {
+            width: auto;
+            padding: 0;
+            margin: 0 6px 0 0;
+        }
+
         button {
             width: 100%;
             padding: 10px;
@@ -227,6 +239,11 @@
                 id="registerPassword"
                 placeholder="パスワード">
 
+            <input
+                type="password"
+                id="registerPasswordConfirm"
+                placeholder="パスワード確認">
+
             <button id="registerBtn">
                 新規登録
             </button>
@@ -279,6 +296,14 @@
                 id="department"
                 placeholder="学科">
 
+            <select id="gender">
+                <option value="">性別を選択</option>
+                <option value="male">男性</option>
+                <option value="female">女性</option>
+                <option value="other">その他</option>
+                <option value="no_answer">回答しない</option>
+            </select>
+
             <select id="grade">
                 <option value="">学年選択</option>
                 <option value="1">1年</option>
@@ -314,6 +339,8 @@
 
                 <p id="departmentView"></p>
 
+                <p id="genderView"></p>
+
                 <p id="gradeView"></p>
 
                 <p id="bioView"></p>
@@ -331,9 +358,6 @@
                         ⭕
                     </button>
 
-                    <button id="blockBtn" type="button">
-                        🚫 ブロック
-                    </button>
                 </div>
 
             </div>
@@ -364,6 +388,9 @@
             </button>
             <button id="careerModeBtn" type="button">
                 💼 就活モード
+            </button>
+            <button id="exchangeModeBtn" type="button">
+                🌏 国際交流モード
             </button>
         </div>
 
@@ -444,6 +471,41 @@
             </button>
         </div>
 
+        <div id="exchangeProfilePage" class="hidden">
+            <h2>国際交流モード登録</h2>
+            <select id="exchangeType">
+                <option value="">属性を選択</option>
+                <option value="international">留学生</option>
+                <option value="japanese">日本人学生</option>
+            </select>
+            <fieldset>
+                <legend>話せる言語（複数選択）</legend>
+                <label><input type="checkbox" name="exchangeSpeakLanguages" value="日本語">日本語</label>
+                <label><input type="checkbox" name="exchangeSpeakLanguages" value="英語">英語</label>
+                <label><input type="checkbox" name="exchangeSpeakLanguages" value="中国語">中国語</label>
+                <label><input type="checkbox" name="exchangeSpeakLanguages" value="韓国語">韓国語</label>
+                <label><input type="checkbox" name="exchangeSpeakLanguages" value="ロシア語">ロシア語</label>
+                <label><input type="checkbox" name="exchangeSpeakLanguages" value="ベトナム語">ベトナム語</label>
+            </fieldset>
+            <fieldset>
+                <legend>学びたい言語（複数選択）</legend>
+                <label><input type="checkbox" name="exchangeLearnLanguages" value="日本語">日本語</label>
+                <label><input type="checkbox" name="exchangeLearnLanguages" value="英語">英語</label>
+                <label><input type="checkbox" name="exchangeLearnLanguages" value="中国語">中国語</label>
+                <label><input type="checkbox" name="exchangeLearnLanguages" value="韓国語">韓国語</label>
+                <label><input type="checkbox" name="exchangeLearnLanguages" value="ロシア語">ロシア語</label>
+                <label><input type="checkbox" name="exchangeLearnLanguages" value="ベトナム語">ベトナム語</label>
+            </fieldset>
+            <select id="exchangePurpose">
+                <option value="">国際交流の目的を選択</option>
+                <option value="友達作り">友達作り</option>
+                <option value="語学学習">語学学習</option>
+                <option value="文化交流">文化交流</option>
+                <option value="イベント参加">イベント参加</option>
+            </select>
+            <button id="saveExchangeProfileBtn" type="button">保存</button>
+        </div>
+
         <div id="matchListPage" class="hidden">
             <h2>マッチ一覧</h2>
             <div id="matchList"></div>
@@ -455,6 +517,7 @@
             <h2 id="matchProfileNickname"></h2>
             <p id="matchProfileFaculty"></p>
             <p id="matchProfileDepartment"></p>
+            <p id="matchProfileGender"></p>
             <p id="matchProfileGrade"></p>
             <p id="matchProfileBio"></p>
         </div>
@@ -470,6 +533,7 @@
             <div id="chatMessages" class="chatMessages"></div>
             <textarea id="messageInput" placeholder="メッセージを入力"></textarea>
             <button id="sendMessageBtn" type="button">送信</button>
+            <button id="blockUserBtn" type="button">🚫 このユーザーをブロック</button>
         </div>
 
     </div>

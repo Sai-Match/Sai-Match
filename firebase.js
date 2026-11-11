@@ -71,6 +71,16 @@ const MODE_CONFIG = {
         profilePageId: "relationshipProfilePage",
         fields: [
             {
+                key: "targetGender",
+                label: "表示したい性別",
+                inputId: "targetGender",
+                displayValues: {
+                    male: "男性",
+                    female: "女性",
+                    both: "どちらも"
+                }
+            },
+            {
                 key: "goal",
                 label: "募集目的",
                 inputId: "relationshipGoal",
@@ -820,6 +830,15 @@ async function loadModeUsers() {
                         id: userSnapshot.id,
                         ...userSnapshot.data()
                     };
+                    if (
+                        mode === "relationship" &&
+                        ["male", "female"].includes(
+                            currentModeProfile.targetGender
+                        ) &&
+                        profile.gender !== currentModeProfile.targetGender
+                    ) {
+                        return null;
+                    }
                     if (mode === "exchange") {
                         const exchangeProfile = profileDoc.data();
                         const compatibility = calculateExchangeMatch(

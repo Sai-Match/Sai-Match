@@ -42,7 +42,7 @@
 
         .authLogo {
             display: block;
-            width: 160px;
+            width: 240px;
             max-width: 70%;
             height: auto;
             margin: 0 auto 16px;
@@ -149,6 +149,30 @@
         }
 
         .matchCardActions button {
+            width: auto;
+            margin-top: 0;
+        }
+
+        #matchPagination {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        #matchPagination button {
+            flex: 1;
+        }
+
+        .blockedUserItem {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .blockedUserItem button {
             width: auto;
             margin-top: 0;
         }
@@ -340,6 +364,7 @@
                 type="file"
                 id="profileImage"
                 accept="image/*">
+            <small>プロフィール写真は自動で縮小・圧縮され、最大1MBで保存されます（選択できる元画像は20MB以下）。</small>
 
             <input
                 type="text"
@@ -579,6 +604,14 @@
         <div id="matchListPage" class="hidden">
             <h2>マッチ一覧</h2>
             <div id="matchList"></div>
+            <div id="matchPagination"></div>
+            <button id="toggleBlockedUsersBtn" type="button">
+                ブロックした人を管理
+            </button>
+            <section id="blockedUsersSection" class="hidden">
+                <h3>ブロックした人</h3>
+                <div id="blockedUsersList"></div>
+            </section>
         </div>
 
         <div id="matchProfilePage" class="hidden">
@@ -602,6 +635,9 @@
             <p id="messageLimitNotice" class="hidden">
                 送信上限に達しました。<br>
                 連絡先交換済みの場合は、LINEやDiscordへ移行してください。
+            </p>
+            <p id="chatBlockedNotice" class="hidden">
+                ブロックされたため、このチャットは利用できません。
             </p>
             <div id="chatMessages" class="chatMessages"></div>
             <textarea id="messageInput" placeholder="メッセージを入力"></textarea>

@@ -19,6 +19,7 @@ import {
     collection,
     getDocs,
     addDoc,
+    deleteDoc,
     query,
     where,
     arrayUnion,
@@ -57,7 +58,15 @@ let currentMode = null;
 let activeMatch = null;
 let unsubscribeMessages = null;
 let unsubscribeActiveMatch = null;
+let unsubscribeBlockStatus = [];
+let chatBlocked = false;
+let matchesWithProfiles = [];
+let currentMatchPage = 0;
 const MAX_MESSAGES_PER_USER = 5;
+const MATCHES_PER_PAGE = 5;
+const MAX_PROFILE_IMAGE_SIZE = 1024 * 1024;
+const MAX_PROFILE_IMAGE_SOURCE_SIZE = 20 * 1024 * 1024;
+const MAX_PROFILE_IMAGE_DIMENSION = 1200;
 const GENDER_LABELS = {
     male: "男性",
     female: "女性",
@@ -199,7 +208,114 @@ function stopListeningToMessages() {
         unsubscribeActiveMatch();
         unsubscribeActiveMatch = null;
     }
+    unsubscribeBlockStatus.forEach((unsubscribe) => unsubscribe());
+    unsubscribeBlockStatus = [];
+    chatBlocked = false;
     activeMatch = null;
+}
+
+function getBlockDocumentId(fromUserId, toUserId) {
+    return `direct_${encodeURIComponent(JSON.stringify([fromUserId, toUserId]))}`;
+}
+
+async function isBlockedBetweenUsers(firstUserId, secondUserId) {
+    const [firstToSecond, secondToFirst] = await Promise.all([
+        getDocs(query(
+            collection(db, "blocks"),
+            where("fromUserId", "==", firstUserId),
+            where("toUserId", "==", secondUserId)
+        )),
+        getDocs(query(
+            collection(db, "blocks"),
+            where("fromUserId", "==", secondUserId),
+            where("toUserId", "==", firstUserId)
+        ))
+    ]);
+    return !firstToSecond.empty || !secondToFirst.empty;
+}
+
+function compressProfileImage(file) {
+    if (!file.type.startsWith("image/")) {
+        return Promise.reject(new Error("画像ファイルを選択してください"));
+    }
+    if (file.size > MAX_PROFILE_IMAGE_SOURCE_SIZE) {
+        return Promise.reject(new Error("画像は20MB以下のファイルを選択してください"));
+    }
+
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        const image = new Image();
+
+        reader.onerror = () => reject(new Error("画像ファイルを読み込めませんでした"));
+        reader.onload = () => {
+            image.onerror = () => reject(new Error("画像ファイルを読み込めませんでした"));
+            image.onload = async () => {
+                try {
+                    if (
+                        file.size <= MAX_PROFILE_IMAGE_SIZE &&
+                        image.width <= MAX_PROFILE_IMAGE_DIMENSION &&
+                        image.height <= MAX_PROFILE_IMAGE_DIMENSION
+                    ) {
+                        resolve(file);
+                        return;
+                    }
+
+                    let scale = Math.min(
+                        1,
+                        MAX_PROFILE_IMAGE_DIMENSION / image.width,
+                        MAX_PROFILE_IMAGE_DIMENSION / image.height
+                    );
+                    const canvas = document.createElement("canvas");
+                    const context = canvas.getContext("2d");
+                    if (!context) {
+                        throw new Error("画像を圧縮できませんでした");
+                    }
+
+                    let compressedBlob = null;
+                    while (scale >= 0.2) {
+                        canvas.width = Math.max(1, Math.round(image.width * scale));
+                        canvas.height = Math.max(1, Math.round(image.height * scale));
+                        context.fillStyle = "#fff";
+                        context.fillRect(0, 0, canvas.width, canvas.height);
+                        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+                        let quality = 0.8;
+                        compressedBlob = await new Promise((blobResolve) => {
+                            canvas.toBlob(blobResolve, "image/jpeg", quality);
+                        });
+                        while (
+                            compressedBlob &&
+                            compressedBlob.size > MAX_PROFILE_IMAGE_SIZE &&
+                            quality > 0.5
+                        ) {
+                            quality -= 0.1;
+                            compressedBlob = await new Promise((blobResolve) => {
+                                canvas.toBlob(blobResolve, "image/jpeg", quality);
+                            });
+                        }
+                        if (
+                            compressedBlob &&
+                            compressedBlob.size <= MAX_PROFILE_IMAGE_SIZE
+                        ) {
+                            break;
+                        }
+                        scale *= 0.8;
+                    }
+                    if (!compressedBlob) {
+                        throw new Error("画像を圧縮できませんでした");
+                    }
+                    if (compressedBlob.size > MAX_PROFILE_IMAGE_SIZE) {
+                        throw new Error("圧縮後の画像が1MBを超えています");
+                    }
+                    resolve(compressedBlob);
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            image.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    });
 }
 
 function hideModePages() {
@@ -323,8 +439,11 @@ document
                     ? profileSnapshot.data().profileImageUrl || ""
                     : "";
             if (imageFile) {
+                const compressedImage = await compressProfileImage(imageFile);
                 const imageRef = ref(storage, "profiles/" + user.uid);
-                await uploadBytes(imageRef, imageFile);
+                await uploadBytes(imageRef, compressedImage, {
+                    contentType: compressedImage.type || imageFile.type
+                });
                 imageUrl = await getDownloadURL(imageRef);
             }
 
@@ -750,7 +869,12 @@ async function loadModeUsers() {
     }
 
     try {
-        const [modeProfiles, passes, blockedUsers] = await Promise.all([
+        const [
+            modeProfiles,
+            passes,
+            blockedUsers,
+            usersBlockingCurrentUser
+        ] = await Promise.all([
             getDocs(collection(db, `${mode}Profiles`)),
             getDocs(query(
                 collection(db, "passes"),
@@ -760,6 +884,10 @@ async function loadModeUsers() {
             getDocs(query(
                 collection(db, "blocks"),
                 where("fromUserId", "==", currentUser.uid)
+            )),
+            getDocs(query(
+                collection(db, "blocks"),
+                where("toUserId", "==", currentUser.uid)
             ))
         ]);
 
@@ -788,7 +916,12 @@ async function loadModeUsers() {
         cutoff.setDate(cutoff.getDate() - 30);
         const passedUserIds = new Set();
         const blockedUserIds = new Set(
-            blockedUsers.docs.map((blockDoc) => blockDoc.data().toUserId)
+            [
+                ...blockedUsers.docs.map((blockDoc) => blockDoc.data().toUserId),
+                ...usersBlockingCurrentUser.docs.map(
+                    (blockDoc) => blockDoc.data().fromUserId
+                )
+            ]
         );
         passes.forEach((passDoc) => {
             const pass = passDoc.data();
@@ -895,9 +1028,15 @@ async function showMatchList() {
 
     const matchList = document.getElementById("matchList");
     matchList.textContent = "読み込み中...";
+    document.getElementById("matchPagination").replaceChildren();
 
     try {
-        const [user1Matches, user2Matches] = await Promise.all([
+        const [
+            user1Matches,
+            user2Matches,
+            blockedByCurrentUser,
+            blockingCurrentUser
+        ] = await Promise.all([
             getDocs(query(
                 collection(db, "matches"),
                 where("user1", "==", currentUser.uid)
@@ -905,6 +1044,14 @@ async function showMatchList() {
             getDocs(query(
                 collection(db, "matches"),
                 where("user2", "==", currentUser.uid)
+            )),
+            getDocs(query(
+                collection(db, "blocks"),
+                where("fromUserId", "==", currentUser.uid)
+            )),
+            getDocs(query(
+                collection(db, "blocks"),
+                where("toUserId", "==", currentUser.uid)
             ))
         ]);
 
@@ -920,11 +1067,15 @@ async function showMatchList() {
             });
         });
 
+        const blockedPartnerIds = new Set([
+            ...blockedByCurrentUser.docs.map((blockDoc) => blockDoc.data().toUserId),
+            ...blockingCurrentUser.docs.map((blockDoc) => blockDoc.data().fromUserId)
+        ]);
         const matchesByPartner = new Map();
         matchesById.forEach((match) => {
             const partnerId =
                 match.user1 === currentUser.uid ? match.user2 : match.user1;
-            if (partnerId) {
+            if (partnerId && !blockedPartnerIds.has(partnerId)) {
                 const existing = matchesByPartner.get(partnerId);
                 const modes = new Set([
                     ...(Array.isArray(existing?.match.modes)
@@ -942,7 +1093,7 @@ async function showMatchList() {
             }
         });
 
-        const matchesWithProfiles = await Promise.all(
+        matchesWithProfiles = await Promise.all(
             [...matchesByPartner.values()].map(async ({ match, partnerId }) => {
                 const profileSnapshot = await getDoc(doc(db, "users", partnerId));
                 return {
@@ -960,70 +1111,212 @@ async function showMatchList() {
         }
 
         matchList.replaceChildren();
+        document.getElementById("matchPagination").replaceChildren();
         if (matchesWithProfiles.length === 0) {
             matchList.textContent = "マッチはまだありません";
             return;
         }
 
-        matchesWithProfiles.forEach(({ match, partnerId, profile }) => {
-            const card = document.createElement("div");
-            card.className = "matchCard";
-
-            const image = document.createElement("img");
-            image.alt = "プロフィール画像";
-            if (profile.profileImageUrl) {
-                image.src = profile.profileImageUrl;
-            } else {
-                image.classList.add("hidden");
-            }
-
-            const info = document.createElement("div");
-            info.className = "matchCardInfo";
-            const modeLabel = document.createElement("div");
-            modeLabel.textContent = (match.modes || [])
-                .map((mode) => MODE_CONFIG[mode]?.icon || "")
-                .join("");
-            const name = document.createElement("strong");
-            name.textContent = profile.nickname || "名前未設定";
-            info.append(modeLabel, name);
-
-            const unreadCount = Number(
-                match.user1 === currentUser.uid
-                    ? match.user1Unread
-                    : match.user2Unread
-            ) || 0;
-            if (unreadCount > 0) {
-                const badge = document.createElement("span");
-                badge.className = "unreadBadge";
-                badge.textContent = `🔴 ${unreadCount}件`;
-                info.append(badge);
-            }
-
-            const profileButton = document.createElement("button");
-            profileButton.type = "button";
-            profileButton.textContent = "プロフィール";
-            profileButton.addEventListener("click", () => {
-                showMatchProfile(profile);
-            });
-
-            const chatButton = document.createElement("button");
-            chatButton.type = "button";
-            chatButton.textContent = "チャット";
-            chatButton.addEventListener("click", () => {
-                openChat(match, partnerId, profile.nickname || "チャット");
-            });
-
-            const actions = document.createElement("div");
-            actions.className = "matchCardActions";
-            actions.append(profileButton, chatButton);
-            card.append(image, info, actions);
-            matchList.append(card);
-        });
+        currentMatchPage = 0;
+        renderMatchPage();
     } catch (error) {
         matchList.textContent = "";
         alert(error.message);
     }
 }
+
+function renderMatchPage() {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+        return;
+    }
+
+    const matchList = document.getElementById("matchList");
+    const pageCount = Math.ceil(matchesWithProfiles.length / MATCHES_PER_PAGE);
+    const startIndex = currentMatchPage * MATCHES_PER_PAGE;
+    const currentPageMatches = matchesWithProfiles.slice(
+        startIndex,
+        startIndex + MATCHES_PER_PAGE
+    );
+    matchList.replaceChildren();
+
+    currentPageMatches.forEach(({ match, partnerId, profile }) => {
+        const card = document.createElement("div");
+        card.className = "matchCard";
+
+        const image = document.createElement("img");
+        image.alt = "プロフィール画像";
+        if (profile.profileImageUrl) {
+            image.src = profile.profileImageUrl;
+        } else {
+            image.classList.add("hidden");
+        }
+
+        const info = document.createElement("div");
+        info.className = "matchCardInfo";
+        const modeLabel = document.createElement("div");
+        modeLabel.textContent = (match.modes || [])
+            .map((mode) => MODE_CONFIG[mode]?.icon || "")
+            .join("");
+        const name = document.createElement("strong");
+        name.textContent = profile.nickname || "名前未設定";
+        info.append(modeLabel, name);
+
+        const unreadCount = Number(
+            match.user1 === currentUser.uid
+                ? match.user1Unread
+                : match.user2Unread
+        ) || 0;
+        if (unreadCount > 0) {
+            const badge = document.createElement("span");
+            badge.className = "unreadBadge";
+            badge.textContent = `🔴 ${unreadCount}件`;
+            info.append(badge);
+        }
+
+        const profileButton = document.createElement("button");
+        profileButton.type = "button";
+        profileButton.textContent = "プロフィール";
+        profileButton.addEventListener("click", () => {
+            showMatchProfile(profile);
+        });
+
+        const chatButton = document.createElement("button");
+        chatButton.type = "button";
+        chatButton.textContent = "チャット";
+        chatButton.addEventListener("click", () => {
+            openChat(match, partnerId, profile.nickname || "チャット");
+        });
+
+        const actions = document.createElement("div");
+        actions.className = "matchCardActions";
+        actions.append(profileButton, chatButton);
+        card.append(image, info, actions);
+        matchList.append(card);
+    });
+
+    const pagination = document.getElementById("matchPagination");
+    pagination.replaceChildren();
+    if (pageCount <= 1) {
+        return;
+    }
+
+    const previousButton = document.createElement("button");
+    previousButton.type = "button";
+    previousButton.textContent = "前へ";
+    previousButton.disabled = currentMatchPage === 0;
+    previousButton.addEventListener("click", () => {
+        currentMatchPage--;
+        renderMatchPage();
+    });
+
+    const pageLabel = document.createElement("span");
+    pageLabel.textContent =
+        `${currentMatchPage + 1} / ${pageCount}ページ`;
+
+    const nextButton = document.createElement("button");
+    nextButton.type = "button";
+    nextButton.textContent = "次へ";
+    nextButton.disabled = currentMatchPage >= pageCount - 1;
+    nextButton.addEventListener("click", () => {
+        currentMatchPage++;
+        renderMatchPage();
+    });
+    pagination.append(previousButton, pageLabel, nextButton);
+}
+
+async function loadBlockedUsers() {
+    const currentUser = auth.currentUser;
+    const blockedUsersList = document.getElementById("blockedUsersList");
+    blockedUsersList.textContent = "読み込み中...";
+    if (!currentUser) {
+        blockedUsersList.textContent = "ログインしてください";
+        return;
+    }
+
+    try {
+        const blockedUsersSnapshot = await getDocs(query(
+            collection(db, "blocks"),
+            where("fromUserId", "==", currentUser.uid)
+        ));
+        const blocksByUser = new Map();
+        blockedUsersSnapshot.docs.forEach((blockDoc) => {
+            const targetUserId = blockDoc.data().toUserId;
+            if (!targetUserId) {
+                return;
+            }
+            const existing = blocksByUser.get(targetUserId) || [];
+            existing.push(blockDoc.id);
+            blocksByUser.set(targetUserId, existing);
+        });
+
+        const profiles = await Promise.all(
+            [...blocksByUser.entries()].map(async ([userId, blockIds]) => {
+                const profileSnapshot = await getDoc(doc(db, "users", userId));
+                return {
+                    userId,
+                    blockIds,
+                    nickname: profileSnapshot.exists()
+                        ? profileSnapshot.data().nickname || "名前未設定"
+                        : "退会済みユーザー"
+                };
+            })
+        );
+        if (auth.currentUser?.uid !== currentUser.uid) {
+            return;
+        }
+
+        blockedUsersList.replaceChildren();
+        if (profiles.length === 0) {
+            blockedUsersList.textContent = "ブロックしたユーザーはいません";
+            return;
+        }
+
+        profiles.forEach(({ userId, blockIds, nickname }) => {
+            const item = document.createElement("div");
+            item.className = "blockedUserItem";
+            const name = document.createElement("span");
+            name.textContent = nickname;
+            const unblockButton = document.createElement("button");
+            unblockButton.type = "button";
+            unblockButton.textContent = "ブロック解除";
+            unblockButton.addEventListener("click", async () => {
+                unblockButton.disabled = true;
+                try {
+                    await Promise.all([
+                        ...blockIds.map((blockId) =>
+                            deleteDoc(doc(db, "blocks", blockId))
+                        ),
+                        deleteDoc(doc(
+                            db,
+                            "blocks",
+                            getBlockDocumentId(currentUser.uid, userId)
+                        ))
+                    ]);
+                    await Promise.all([loadBlockedUsers(), showMatchList()]);
+                } catch (error) {
+                    alert(error.message);
+                    unblockButton.disabled = false;
+                }
+            });
+            item.append(name, unblockButton);
+            blockedUsersList.append(item);
+        });
+    } catch (error) {
+        blockedUsersList.textContent = "";
+        alert(error.message);
+    }
+}
+
+document
+    .getElementById("toggleBlockedUsersBtn")
+    .addEventListener("click", async () => {
+        const section = document.getElementById("blockedUsersSection");
+        const isHidden = section.classList.toggle("hidden");
+        if (!isHidden) {
+            await loadBlockedUsers();
+        }
+    });
 
 function showMatchProfile(profile) {
     stopListeningToMessages();
@@ -1072,6 +1365,20 @@ async function openChat(match, partnerId, partnerName) {
     }
 
     stopListeningToMessages();
+    try {
+        if (await isBlockedBetweenUsers(currentUser.uid, partnerId)) {
+            alert("ブロック中のユーザーとはチャットできません");
+            await showMatchList();
+            return;
+        }
+    } catch (error) {
+        alert(error.message);
+        return;
+    }
+    if (auth.currentUser?.uid !== currentUser.uid) {
+        return;
+    }
+
     activeMatch = { id: match.id, partnerId, partnerName };
     hideModePages();
     document.getElementById("matchListPage").classList.add("hidden");
@@ -1086,6 +1393,8 @@ async function openChat(match, partnerId, partnerName) {
     document.getElementById("messageRemain").dataset.remaining =
         String(MAX_MESSAGES_PER_USER);
     document.getElementById("messageLimitNotice").classList.add("hidden");
+    document.getElementById("chatBlockedNotice").classList.add("hidden");
+    document.getElementById("messageInput").disabled = false;
     document.getElementById("sendMessageBtn").disabled = false;
     document.getElementById("blockUserBtn").disabled = false;
     document.getElementById("chatMessages").textContent = "読み込み中...";
@@ -1096,7 +1405,25 @@ async function openChat(match, partnerId, partnerName) {
         : "user2Unread";
     try {
         await runTransaction(db, async (transaction) => {
-            const matchSnapshot = await transaction.get(matchRef);
+            const ownBlockRef = doc(
+                db,
+                "blocks",
+                getBlockDocumentId(currentUser.uid, partnerId)
+            );
+            const partnerBlockRef = doc(
+                db,
+                "blocks",
+                getBlockDocumentId(partnerId, currentUser.uid)
+            );
+            const [matchSnapshot, ownBlockSnapshot, partnerBlockSnapshot] =
+                await Promise.all([
+                    transaction.get(matchRef),
+                    transaction.get(ownBlockRef),
+                    transaction.get(partnerBlockRef)
+                ]);
+            if (ownBlockSnapshot.exists() || partnerBlockSnapshot.exists()) {
+                throw new Error("ブロック中のユーザーとはチャットできません");
+            }
             if (!matchSnapshot.exists()) {
                 throw new Error("マッチ情報が見つかりません");
             }
@@ -1117,6 +1444,9 @@ async function openChat(match, partnerId, partnerName) {
         });
     } catch (error) {
         alert(error.message);
+        stopListeningToMessages();
+        await showMatchList();
+        return;
     }
 
     if (
@@ -1142,6 +1472,29 @@ async function openChat(match, partnerId, partnerName) {
         collection(db, "matches", match.id, "messages"),
         orderBy("createdAt", "asc")
     );
+    const blockQueries = [
+        query(
+            collection(db, "blocks"),
+            where("fromUserId", "==", currentUser.uid),
+            where("toUserId", "==", partnerId)
+        ),
+        query(
+            collection(db, "blocks"),
+            where("fromUserId", "==", partnerId),
+            where("toUserId", "==", currentUser.uid)
+        )
+    ];
+    const blockStates = [false, false];
+    unsubscribeBlockStatus = blockQueries.map((blockQuery, index) =>
+        onSnapshot(
+            blockQuery,
+            (snapshot) => {
+                blockStates[index] = !snapshot.empty;
+                setChatBlocked(blockStates.some(Boolean));
+            },
+            (error) => alert(error.message)
+        )
+    );
     unsubscribeMessages = onSnapshot(
         messagesQuery,
         (snapshot) => {
@@ -1151,6 +1504,25 @@ async function openChat(match, partnerId, partnerName) {
             alert(error.message);
         }
     );
+}
+
+function setChatBlocked(blocked) {
+    const isBlocked = chatBlocked || blocked;
+    chatBlocked = isBlocked;
+    document.getElementById("chatBlockedNotice").classList.toggle(
+        "hidden",
+        !isBlocked
+    );
+    document.getElementById("messageInput").disabled = isBlocked;
+    document.getElementById("sendMessageBtn").disabled = isBlocked ||
+        Number(document.getElementById("messageRemain").dataset.remaining) <= 0;
+    document.getElementById("blockUserBtn").disabled = isBlocked;
+    if (isBlocked && unsubscribeMessages) {
+        unsubscribeMessages();
+        unsubscribeMessages = null;
+        document.getElementById("chatMessages").textContent =
+            "ブロックされたため、このチャットは利用できません";
+    }
 }
 
 function updateMessageLimitView(matchData, userId) {
@@ -1167,7 +1539,8 @@ function updateMessageLimitView(matchData, userId) {
         "hidden",
         remaining > 0
     );
-    document.getElementById("sendMessageBtn").disabled = remaining === 0;
+    document.getElementById("sendMessageBtn").disabled =
+        chatBlocked || remaining === 0;
 }
 
 function renderMessages(messageDocs) {
@@ -1215,20 +1588,43 @@ document
     .addEventListener("click", async (event) => {
         const currentUser = auth.currentUser;
         const text = document.getElementById("messageInput").value.trim();
-        if (!currentUser || !activeMatch || !text) {
+        if (!currentUser || !activeMatch || !text || chatBlocked) {
             return;
         }
 
         const matchId = activeMatch.id;
+        const partnerId = activeMatch.partnerId;
         const sendButton = event.currentTarget;
         sendButton.disabled = true;
         try {
+            if (await isBlockedBetweenUsers(currentUser.uid, partnerId)) {
+                setChatBlocked(true);
+                return;
+            }
             const matchRef = doc(db, "matches", matchId);
+            const ownBlockRef = doc(
+                db,
+                "blocks",
+                getBlockDocumentId(currentUser.uid, partnerId)
+            );
+            const partnerBlockRef = doc(
+                db,
+                "blocks",
+                getBlockDocumentId(partnerId, currentUser.uid)
+            );
             const messageRef = doc(
                 collection(db, "matches", matchId, "messages")
             );
             const remaining = await runTransaction(db, async (transaction) => {
-                const matchSnapshot = await transaction.get(matchRef);
+                const [matchSnapshot, ownBlockSnapshot, partnerBlockSnapshot] =
+                    await Promise.all([
+                        transaction.get(matchRef),
+                        transaction.get(ownBlockRef),
+                        transaction.get(partnerBlockRef)
+                    ]);
+                if (ownBlockSnapshot.exists() || partnerBlockSnapshot.exists()) {
+                    throw new Error("ブロック中のユーザーには送信できません");
+                }
                 if (!matchSnapshot.exists()) {
                     throw new Error("マッチ情報が見つかりません");
                 }
@@ -1294,7 +1690,7 @@ document
             alert(error.message);
         } finally {
             if (activeMatch?.id === matchId) {
-                sendButton.disabled =
+                sendButton.disabled = chatBlocked ||
                     Number(document.getElementById("messageRemain").dataset.remaining) <= 0;
             }
         }
@@ -1312,7 +1708,11 @@ document
         const blockButton = event.currentTarget;
         blockButton.disabled = true;
         try {
-            await addDoc(collection(db, "blocks"), {
+            await setDoc(doc(
+                db,
+                "blocks",
+                getBlockDocumentId(currentUser.uid, match.partnerId)
+            ), {
                 fromUserId: currentUser.uid,
                 toUserId: match.partnerId,
                 createdAt: new Date()
@@ -1324,6 +1724,13 @@ document
             ) {
                 alert("ブロックしました");
                 await showMatchList();
+                if (
+                    !document
+                        .getElementById("blockedUsersSection")
+                        .classList.contains("hidden")
+                ) {
+                    await loadBlockedUsers();
+                }
             }
         } catch (error) {
             alert(error.message);

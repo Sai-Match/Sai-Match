@@ -872,12 +872,18 @@ async function loadModeUsers() {
         const [
             modeProfiles,
             passes,
+            likedUsers,
             blockedUsers,
             usersBlockingCurrentUser
         ] = await Promise.all([
             getDocs(collection(db, `${mode}Profiles`)),
             getDocs(query(
                 collection(db, "passes"),
+                where("fromUserId", "==", currentUser.uid),
+                where("mode", "==", mode)
+            )),
+            getDocs(query(
+                collection(db, "likes"),
                 where("fromUserId", "==", currentUser.uid),
                 where("mode", "==", mode)
             )),
@@ -915,6 +921,7 @@ async function loadModeUsers() {
         const cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - 30);
         const passedUserIds = new Set();
+        const likedUserIds = new Set();
         const blockedUserIds = new Set(
             [
                 ...blockedUsers.docs.map((blockDoc) => blockDoc.data().toUserId),
@@ -936,6 +943,12 @@ async function loadModeUsers() {
                 passedUserIds.add(pass.toUserId);
             }
         });
+        likedUsers.forEach((likeDoc) => {
+            const like = likeDoc.data();
+            if (like.toUserId) {
+                likedUserIds.add(like.toUserId);
+            }
+        });
 
         currentIndex = 0;
         const candidateProfiles = await Promise.all(
@@ -944,6 +957,7 @@ async function loadModeUsers() {
                     profileDoc.id !== currentUser.uid &&
                     !blockedUserIds.has(profileDoc.id) &&
                     !passedUserIds.has(profileDoc.id) &&
+                    !likedUserIds.has(profileDoc.id) &&
                     (
                         mode !== "exchange" ||
                         (

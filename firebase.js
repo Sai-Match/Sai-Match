@@ -1611,6 +1611,30 @@ document
         const sendButton = event.currentTarget;
         sendButton.disabled = true;
         try {
+            const settingsSnapshot = await getDoc(
+                doc(db, "settings", "moderation")
+            );
+            const ngWords = settingsSnapshot.exists()
+                ? settingsSnapshot.data()?.ngWords
+                : [];
+            let filteredText = text;
+            (Array.isArray(ngWords) ? ngWords : []).forEach((word) => {
+                if (typeof word !== "string" || !word.trim()) {
+                    return;
+                }
+
+                const normalizedWord = word.trim();
+                const escapedWord = normalizedWord.replace(
+                    /[.*+?^${}()|[\]\\]/g,
+                    "\\$&"
+                );
+                const regex = new RegExp(escapedWord, "gi");
+                filteredText = filteredText.replace(
+                    regex,
+                    "*".repeat(normalizedWord.length)
+                );
+            });
+
             if (await isBlockedBetweenUsers(currentUser.uid, partnerId)) {
                 setChatBlocked(true);
                 return;
@@ -1666,7 +1690,7 @@ document
 
                 transaction.set(messageRef, {
                     senderId: currentUser.uid,
-                    text,
+                    text: filteredText,
                     createdAt: new Date()
                 });
                 transaction.update(matchRef, {
@@ -1707,6 +1731,51 @@ document
                 sendButton.disabled = chatBlocked ||
                     Number(document.getElementById("messageRemain").dataset.remaining) <= 0;
             }
+        }
+    });
+
+document
+    .getElementById("reportUserBtn")
+    .addEventListener("click", async (event) => {
+        const currentUser = auth.currentUser;
+        const match = activeMatch;
+        if (!currentUser || !match) {
+            return;
+        }
+
+        const reason = prompt(
+            "通報理由\n\n暴言\n迷惑行為\nスパム\n個人情報要求\nその他"
+        );
+        if (!reason?.trim()) {
+            return;
+        }
+        const detail = prompt("通報内容の詳細（任意）");
+        if (detail === null) {
+            return;
+        }
+
+        const reportButton = event.currentTarget;
+        reportButton.disabled = true;
+        try {
+            await addDoc(collection(db, "reports"), {
+                reporterId: currentUser.uid,
+                targetUserId: match.partnerId,
+                reason: reason.trim(),
+                detail: detail.trim(),
+                status: "open",
+                createdAt: new Date()
+            });
+
+            if (
+                auth.currentUser?.uid === currentUser.uid &&
+                activeMatch?.id === match.id
+            ) {
+                alert("通報しました");
+            }
+        } catch (error) {
+            alert(error.message);
+        } finally {
+            reportButton.disabled = false;
         }
     });
 

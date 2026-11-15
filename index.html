@@ -227,6 +227,19 @@
             padding-left: 20px;
         }
 
+        .noticeAcknowledgement {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .noticeAcknowledgement input {
+            flex: 0 0 auto;
+            width: auto;
+            margin: 4px 0 0;
+        }
+
         @media (max-width: 768px) {
             body {
                 padding: 0;
@@ -271,20 +284,6 @@
             <img class="authLogo" src="./SaiMatch.png" alt="SaiMatch">
             <h2>ログイン</h2>
 
-            <input
-                type="email"
-                id="loginEmail"
-                placeholder="メールアドレス">
-
-            <input
-                type="password"
-                id="loginPassword"
-                placeholder="パスワード">
-
-            <button id="loginBtn">
-                ログイン
-            </button>
-
             <div class="noticeBox">
                 <h3>【重要なお知らせ】</h3>
                 <ul>
@@ -296,6 +295,24 @@
                     <li>2026年12月中旬までに全データを削除する予定です。</li>
                 </ul>
             </div>
+            <label class="noticeAcknowledgement">
+                <input type="checkbox" id="loginNoticeAcknowledged">
+                重要なお知らせを理解しました
+            </label>
+
+            <input
+                type="email"
+                id="loginEmail"
+                placeholder="メールアドレス">
+
+            <input
+                type="password"
+                id="loginPassword"
+                placeholder="パスワード">
+
+            <button id="loginBtn" type="button" disabled>
+                ログイン
+            </button>
 
             <p>
                 アカウントをお持ちでないですか？
@@ -313,6 +330,22 @@
             <img class="authLogo" src="./SaiMatch.png" alt="SaiMatch">
             <h2>新規登録</h2>
 
+            <div class="noticeBox">
+                <h3>【重要なお知らせ】</h3>
+                <ul>
+                    <li>現在Sai-Matchは開発途中の試験運用版です。</li>
+                    <li>個人情報の管理は十分ではありません。<b>本名・電話番号・実際のメールアドレスなど個人を特定できる情報は入力しないでください</b>。メールアドレスは xxx@xxx.xxx の形式であれば架空のアドレスを設定できます。</li>
+                    <li>今後も適宜、機能追加や仕様変更を行います。</li>
+                    <li><b>アプリ内でマッチした相手と実際に会わないでください</b>。</li>
+                    <li>現在アカウント削除機能はありません。</li>
+                    <li>2026年12月中旬までに全データを削除する予定です。</li>
+                </ul>
+            </div>
+            <label class="noticeAcknowledgement">
+                <input type="checkbox" id="registerNoticeAcknowledged">
+                重要なお知らせを理解しました
+            </label>
+
             <input
                 type="email"
                 id="registerEmail"
@@ -328,21 +361,9 @@
                 id="registerPasswordConfirm"
                 placeholder="パスワード確認">
 
-            <button id="registerBtn">
+            <button id="registerBtn" type="button" disabled>
                 新規登録
             </button>
-
-            <div class="noticeBox">
-                <h3>【重要なお知らせ】</h3>
-                <ul>
-                    <li>現在Sai-Matchは開発途中の試験運用版です。</li>
-                    <li>個人情報の管理は十分ではありません。<b>本名・電話番号・実際のメールアドレスなど個人を特定できる情報は入力しないでください</b>。メールアドレスは xxx@xxx.xxx の形式であれば架空のアドレスを設定できます。</li>
-                    <li>今後も適宜、機能追加や仕様変更を行います。</li>
-                    <li><b>アプリ内でマッチした相手と実際に会わないでください</b>。</li>
-                    <li>現在アカウント削除機能はありません。</li>
-                    <li>2026年12月中旬までに全データを削除する予定です。</li>
-                </ul>
-            </div>
 
             <p>
                 既にアカウントがありますか？

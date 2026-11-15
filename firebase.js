@@ -329,9 +329,22 @@ function hideModePages() {
 // 新規登録
 // ====================
 
+const registerNoticeAcknowledged = document.getElementById(
+    "registerNoticeAcknowledged"
+);
+registerNoticeAcknowledged.addEventListener("change", () => {
+    document.getElementById("registerBtn").disabled =
+        !registerNoticeAcknowledged.checked;
+});
+
 document
     .getElementById("registerBtn")
     .addEventListener("click", async () => {
+
+        if (!registerNoticeAcknowledged.checked) {
+            alert("重要なお知らせを確認してチェックしてください");
+            return;
+        }
 
         const email =
             document.getElementById("registerEmail").value;
@@ -477,9 +490,22 @@ document
 // ログイン
 // ====================
 
+const loginNoticeAcknowledged = document.getElementById(
+    "loginNoticeAcknowledged"
+);
+loginNoticeAcknowledged.addEventListener("change", () => {
+    document.getElementById("loginBtn").disabled =
+        !loginNoticeAcknowledged.checked;
+});
+
 document
     .getElementById("loginBtn")
     .addEventListener("click", async () => {
+
+        if (!loginNoticeAcknowledged.checked) {
+            alert("重要なお知らせを確認してチェックしてください");
+            return;
+        }
 
         const email =
             document.getElementById("loginEmail").value;

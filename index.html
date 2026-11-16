@@ -32,26 +32,27 @@
 
         main {
             width: 100%;
-            max-width: 700px;
-            padding: 32px 24px;
+            max-width: 760px;
+            padding: 40px 28px;
             border-radius: 12px;
             background: #fff;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            text-align: center;
         }
 
         .logo {
             display: block;
-            width: 240px;
+            width: 190px;
             max-width: 70%;
             height: auto;
-            margin: 0 auto 24px;
+            margin: 0 auto 28px;
         }
 
-        h1 {
-            margin: 0 0 24px;
-            font-size: clamp(1.4rem, 5vw, 2rem);
-            overflow-wrap: anywhere;
+        h1.surveyIntro {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+            line-height: 1.6;
+            text-align: left;
         }
 
         .button {
@@ -78,10 +79,84 @@
             outline-offset: 3px;
         }
 
-        .button:disabled {
+        .button[aria-disabled="true"] {
             background: #a7c9b5;
             color: #fff;
             cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .surveyOption {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 20px;
+            padding: 18px 0;
+            text-align: left;
+        }
+
+        .surveyContent {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .surveyList {
+            margin-top: 16px;
+            padding: 0 22px;
+            border: 1px solid #e1e6e3;
+            border-radius: 12px;
+        }
+
+        .surveyOption + .surveyOption {
+            border-top: 1px solid #e1e6e3;
+        }
+
+        .surveyTitle {
+            margin: 0 0 6px;
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+
+        .surveyDescription {
+            margin: 0;
+            line-height: 1.6;
+        }
+
+        .surveyOption .button {
+            width: auto;
+            min-width: 108px;
+            min-height: 40px;
+            flex: 0 0 auto;
+            margin-top: 2px;
+            padding: 8px 16px;
+            border-radius: 999px;
+            font-size: 0.875rem;
+        }
+
+        .surveyOption .button[aria-disabled="true"] {
+            background: #d9e8dd;
+            color: #4d6857;
+        }
+
+        .appPromotion {
+            margin-top: 28px;
+            padding: 24px;
+            border-radius: 12px;
+            background: #eff8f2;
+        }
+
+        .appPromotion h2 {
+            margin: 0;
+            font-size: 1.35rem;
+        }
+
+        .appPromotion p {
+            margin: 8px 0 0;
+            line-height: 1.6;
+        }
+
+        .appPromotion .button {
+            margin-top: 18px;
         }
 
         @media (max-width: 768px) {
@@ -95,9 +170,17 @@
                 justify-content: center;
                 min-height: 100vh;
                 max-width: 100%;
-                padding: 24px 16px;
+                padding: 28px 16px;
                 border-radius: 0;
                 box-shadow: none;
+            }
+
+            .surveyList {
+                padding: 0 16px;
+            }
+
+            .appPromotion {
+                padding: 20px 16px;
             }
         }
     </style>
@@ -105,11 +188,62 @@
 <body>
     <main>
         <img class="logo" src="./SaiMatch.png" alt="SaiMatch">
-        <h1>アンケートへのご協力お願いします。</h1>
-        <button class="button" type="button" disabled aria-disabled="true">
-            アンケート（準備中）
-        </button>
-        <a class="button" href="./app.html">SaiMatchを利用してみる</a>
+        <h1 class="surveyIntro">以下のアンケートへのご協力お願いいたします。</h1>
+        <div class="surveyList">
+            <section class="surveyOption" aria-labelledby="internationalSurveyTitle">
+                <div class="surveyContent">
+                    <h2 class="surveyTitle" id="internationalSurveyTitle">国際交流調査</h2>
+                    <p class="surveyDescription" id="internationalSurveyDescription">
+                        埼玉大学の学生が、学部や国を越えて交流し、英語を練習できる場をつくるためのアンケートです。
+                    </p>
+                </div>
+                <a
+                    class="button"
+                    aria-disabled="true"
+                    tabindex="-1"
+                    href="https://docs.google.com/forms/d/e/1FAIpQLSelBO0WdM6uK-UgJqyDpehLtmt5JhVKnMgw-SY11RGfwKhrqJ/viewform?usp=publish-editor"
+                    aria-describedby="internationalSurveyDescription">
+                    準備中
+                </a>
+            </section>
+            <section class="surveyOption" aria-labelledby="generalSurveyTitle">
+                <div class="surveyContent">
+                    <h2 class="surveyTitle" id="generalSurveyTitle">詳細調査</h2>
+                    <p class="surveyDescription" id="generalSurveyDescription">
+                        国際交流に限らず、埼玉大学内での友人関係・勉強仲間などの交流についての調査です。
+                    </p>
+                </div>
+                <a
+                    class="button"
+                    aria-disabled="true"
+                    tabindex="-1"
+                    href="https://docs.google.com/forms/d/e/1FAIpQLScNjD3u9nZ-uTHC2wsYWtdVUzub00qUPqc-qPqK5LcbOSAxqQ/viewform?usp=publish-editor"
+                    aria-describedby="generalSurveyDescription">
+                    準備中
+                </a>
+            </section>
+            <section class="surveyOption" aria-labelledby="saimatchSurveyTitle">
+                <div class="surveyContent">
+                    <h2 class="surveyTitle" id="saimatchSurveyTitle">SaiMatch利用調査</h2>
+                    <p class="surveyDescription" id="saimatchSurveyDescription">
+                        需要の調査のため、SaiMatchを体験利用した方に対する調査です。
+                    </p>
+                </div>
+                <a
+                    class="button"
+                    aria-disabled="true"
+                    tabindex="-1"
+                    href="https://docs.google.com/forms/d/e/1FAIpQLSdjcRpApzOpeZ5fgkSmJ7_zxi1VQ7-GAf51wrXHHOmZqWH_vw/viewform?usp=publish-editor"
+                    aria-describedby="saimatchSurveyDescription">
+                    準備中
+                </a>
+            </section>
+        </div>
+        <section class="appPromotion">
+            <h2>SaiMatchを体験してみませんか？</h2>
+            <p>学内の新しいつながりを見つけよう。</p>
+            <a class="button" href="./app.html">SaiMatchを利用してみる　→</a>
+        </section>
     </main>
 </body>
 </html>

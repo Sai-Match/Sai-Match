@@ -1,243 +1,79 @@
 <!DOCTYPE html>
 <html lang="ja">
-
 <head>
     <meta charset="UTF-8">
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="./SaiMatch-favicon.ico" type="image/x-icon">
     <title>SaiMatch</title>
-
     <style>
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            background-color: #f5f5f5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
             margin: 0;
             padding: 16px;
-            box-sizing: border-box;
+            background-color: #f5f5f5;
+            color: #222;
+            font-family: Arial, sans-serif;
         }
 
-        .container {
+        main {
             width: 100%;
             max-width: 700px;
-            margin: 0 auto;
-            padding: 20px;
-            background: white;
+            padding: 32px 24px;
             border-radius: 12px;
+            background: #fff;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            box-sizing: border-box;
-        }
-
-        input,
-        select,
-        textarea,
-        button {
-            font-size: 16px;
-        }
-
-        h2 {
             text-align: center;
         }
 
-        .authLogo {
+        .logo {
             display: block;
             width: 240px;
             max-width: 70%;
             height: auto;
-            margin: 0 auto 16px;
+            margin: 0 auto 24px;
         }
 
-        input,
-        select,
-        textarea {
-            width: 100%;
-            padding: 10px;
-            margin-top: 10px;
-            box-sizing: border-box;
-        }
-
-        #exchangeProfilePage fieldset label {
-            display: inline-flex;
-            align-items: center;
-            margin: 4px 10px 4px 0;
-        }
-
-        #exchangeProfilePage input[type="checkbox"] {
-            width: auto;
-            padding: 0;
-            margin: 0 6px 0 0;
-        }
-
-        button {
-            width: 100%;
-            padding: 10px;
-            margin-top: 15px;
-            cursor: pointer;
-        }
-
-        .hidden {
-            display: none;
-        }
-
-        #userCard {
-            padding: 20px;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-        }
-
-        #profileImageView {
-            width: 100%;
-            max-height: 320px;
-            object-fit: cover;
-            border-radius: 10px;
-        }
-
-        .cardActions {
-            display: flex;
-            gap: 10px;
-        }
-
-        .cardActions button {
-            flex: 1;
-        }
-
-        #mainNavigation {
-            display: flex;
-            gap: 8px;
-        }
-
-        #mainNavigation button {
-            flex: 1;
-            padding: 8px 4px;
-        }
-
-        #mainNavigation.hidden {
-            display: none;
-        }
-
-        .matchCard {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 0;
-            border-bottom: 1px solid #ccc;
-        }
-
-        .matchCard img {
-            width: 64px;
-            height: 64px;
-            flex: 0 0 64px;
-            border-radius: 50%;
-            object-fit: cover;
-        }
-
-        .matchCardInfo {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .unreadBadge {
-            display: block;
-            color: #c00;
-            font-weight: bold;
-        }
-
-        .matchCardActions {
-            display: flex;
-            gap: 8px;
-        }
-
-        .matchCardActions button {
-            width: auto;
-            margin-top: 0;
-        }
-
-        #matchPagination {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        #matchPagination button {
-            flex: 1;
-        }
-
-        .blockedUserItem {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 8px 0;
-            border-bottom: 1px solid #ccc;
-        }
-
-        .blockedUserItem button {
-            width: auto;
-            margin-top: 0;
-        }
-
-        #matchProfileImage {
-            display: block;
-            max-width: 100%;
-            max-height: 300px;
-            margin: 16px auto;
-            object-fit: cover;
-        }
-
-        #matchProfileImage.hidden {
-            display: none;
-        }
-
-        .chatMessages {
-            max-height: 300px;
-            overflow-y: auto;
-            padding: 10px;
-            background: #f5f5f5;
-        }
-
-        .chatMessage {
-            margin: 8px 0;
+        h1 {
+            margin: 0 0 24px;
+            font-size: clamp(1.4rem, 5vw, 2rem);
             overflow-wrap: anywhere;
         }
 
-        .chatMessageTime {
-            display: block;
-            color: #666;
-            font-size: 0.8em;
-        }
-
-        .chatSafetyNotice {
-            color: red;
-        }
-
-        .noticeBox {
-            margin-top: 15px;
-            padding: 10px;
-            border: 2px solid red;
-            background: #fff0f0;
-            color: red;
-        }
-
-        .noticeBox h3 {
-            margin-top: 0;
-        }
-
-        .noticeBox ul {
-            padding-left: 20px;
-        }
-
-        .noticeAcknowledgement {
+        .button {
             display: flex;
-            align-items: flex-start;
-            gap: 8px;
-            margin-top: 12px;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-height: 48px;
+            margin-top: 16px;
+            padding: 12px 16px;
+            border: 0;
+            border-radius: 8px;
+            background: #00a65a;
+            color: #fff;
+            font: inherit;
+            font-size: 1rem;
+            font-weight: bold;
+            text-decoration: none;
+            cursor: pointer;
         }
 
-        .noticeAcknowledgement input {
-            flex: 0 0 auto;
-            width: auto;
-            margin: 4px 0 0;
+        .button:focus-visible {
+            outline: 3px solid #222;
+            outline-offset: 3px;
+        }
+
+        .button:disabled {
+            background: #a7c9b5;
+            color: #fff;
+            cursor: not-allowed;
         }
 
         @media (max-width: 768px) {
@@ -245,456 +81,27 @@
                 padding: 0;
             }
 
-            .container {
-                max-width: 100%;
+            main {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
                 min-height: 100vh;
+                max-width: 100%;
+                padding: 24px 16px;
                 border-radius: 0;
                 box-shadow: none;
-                padding: 16px;
-            }
-
-            button {
-                min-height: 48px;
-            }
-
-            input,
-            select,
-            textarea {
-                font-size: 16px;
-            }
-
-            #mainNavigation {
-                flex-wrap: wrap;
-            }
-
-            #mainNavigation button {
-                min-width: 45%;
             }
         }
     </style>
 </head>
-
 <body>
-
-    <div class="container">
-
-        <!-- ログイン画面 -->
-        <div id="loginForm">
-
-            <img class="authLogo" src="./SaiMatch.png" alt="SaiMatch">
-            <h2>ログイン</h2>
-
-            <div class="noticeBox">
-                <h3>【重要なお知らせ】</h3>
-                <ul>
-                    <li>現在Sai-Matchは開発途中の試験運用版です。</li>
-                    <li>個人情報の管理は十分ではありません。<b>本名・電話番号・実際のメールアドレスなど個人を特定できる情報は入力しないでください</b>。メールアドレスは xxx@xxx.xxx の形式であれば架空のアドレスを設定できます。</li>
-                    <li>今後も適宜、機能追加や仕様変更を行います。</li>
-                    <li><b>アプリ内でマッチした相手と実際に会わないでください</b>。</li>
-                    <li>現在アカウント削除機能はありません。</li>
-                    <li>2026年12月中旬までに全データを削除する予定です。</li>
-                </ul>
-            </div>
-            <label class="noticeAcknowledgement">
-                <input type="checkbox" id="loginNoticeAcknowledged">
-                重要なお知らせを理解しました
-            </label>
-
-            <input
-                type="email"
-                id="loginEmail"
-                placeholder="メールアドレス">
-
-            <input
-                type="password"
-                id="loginPassword"
-                placeholder="パスワード">
-
-            <button id="loginBtn" type="button" disabled>
-                ログイン
-            </button>
-
-            <p>
-                アカウントをお持ちでないですか？
-
-                <a href="#" onclick="showRegister()">
-                    新規登録
-                </a>
-            </p>
-
-        </div>
-
-        <!-- 新規登録画面 -->
-        <div id="registerForm" class="hidden">
-
-            <img class="authLogo" src="./SaiMatch.png" alt="SaiMatch">
-            <h2>新規登録</h2>
-
-            <div class="noticeBox">
-                <h3>【重要なお知らせ】</h3>
-                <ul>
-                    <li>現在Sai-Matchは開発途中の試験運用版です。</li>
-                    <li>個人情報の管理は十分ではありません。<b>本名・電話番号・実際のメールアドレスなど個人を特定できる情報は入力しないでください</b>。メールアドレスは xxx@xxx.xxx の形式であれば架空のアドレスを設定できます。</li>
-                    <li>今後も適宜、機能追加や仕様変更を行います。</li>
-                    <li><b>アプリ内でマッチした相手と実際に会わないでください</b>。</li>
-                    <li>現在アカウント削除機能はありません。</li>
-                    <li>2026年12月中旬までに全データを削除する予定です。</li>
-                </ul>
-            </div>
-            <label class="noticeAcknowledgement">
-                <input type="checkbox" id="registerNoticeAcknowledged">
-                重要なお知らせを理解しました
-            </label>
-
-            <input
-                type="email"
-                id="registerEmail"
-                placeholder="メールアドレス">
-
-            <input
-                type="password"
-                id="registerPassword"
-                placeholder="パスワード">
-
-            <input
-                type="password"
-                id="registerPasswordConfirm"
-                placeholder="パスワード確認">
-
-            <button id="registerBtn" type="button" disabled>
-                新規登録
-            </button>
-
-            <p>
-                既にアカウントがありますか？
-
-                <a href="#" onclick="showLogin()">
-                    ログイン
-                </a>
-
-            </p>
-
-        </div>
-
-        <!-- プロフィール登録画面 -->
-        <div id="profileForm" class="hidden">
-
-            <h2 id="profileFormTitle">プロフィール登録</h2>
-
-            <input
-                type="file"
-                id="profileImage"
-                accept="image/*">
-            <small>プロフィール写真は自動で縮小・圧縮され、最大1MBで保存されます（選択できる元画像は20MB以下）。</small>
-
-            <input
-                type="text"
-                id="nickname"
-                placeholder="ニックネーム">
-
-            <input
-                type="text"
-                id="faculty"
-                placeholder="学部">
-
-            <input
-                type="text"
-                id="department"
-                placeholder="学科">
-
-            <select id="gender">
-                <option value="">性別を選択</option>
-                <option value="male">男性</option>
-                <option value="female">女性</option>
-                <option value="other">その他</option>
-                <option value="no_answer">回答しない</option>
-            </select>
-
-            <select id="grade">
-                <option value="">学年選択</option>
-                <option value="1">1年</option>
-                <option value="2">2年</option>
-                <option value="3">3年</option>
-                <option value="4">4年</option>
-            </select>
-
-            <textarea
-                id="bio"
-                placeholder="自己紹介"
-                rows="5"></textarea>
-
-            <button id="saveProfileBtn">
-                保存
-            </button>
-
-        </div>
-
-        <div id="userListPage" class="hidden">
-
-            <h2>ユーザー一覧</h2>
-
-            <p id="currentUser"></p>
-
-            <div id="userCard">
-
-                <img id="profileImageView" class="hidden" alt="プロフィール画像">
-
-                <h3 id="nicknameView"></h3>
-
-                <p id="facultyView"></p>
-
-                <p id="departmentView"></p>
-
-                <p id="genderView"></p>
-
-                <p id="gradeView"></p>
-
-                <p id="bioView"></p>
-
-                <hr>
-
-                <div id="modeProfileArea"></div>
-
-                <div class="cardActions">
-                    <button id="passBtn">
-                        ❌
-                    </button>
-
-                    <button id="likeBtn">
-                        ⭕
-                    </button>
-
-                </div>
-
-            </div>
-
-            <button id="loadUsersBtn">
-                ユーザー更新
-            </button>
-
-            <button id="editModeProfileBtn" type="button">
-                このモードのプロフィールを編集
-            </button>
-
-        </div>
-
-        <nav id="mainNavigation" class="hidden" aria-label="メインメニュー">
-            <button id="homeNavBtn" type="button">🏠 モード選択</button>
-            <button id="matchesNavBtn" type="button">❤️ マッチ一覧</button>
-            <button id="profileNavBtn" type="button">👤 プロフィール</button>
-            <button id="logoutBtn" type="button">ログアウト</button>
-        </nav>
-
-        <div id="modeSelectPage" class="hidden">
-            <h2>モード選択</h2>
-            <button id="relationshipModeBtn" type="button">
-                ❤️ 人間関係モード
-            </button>
-            <button id="studyModeBtn" type="button">
-                📚 学習モード
-            </button>
-            <button id="hobbyModeBtn" type="button">
-                🎮 趣味モード
-            </button>
-            <button id="careerModeBtn" type="button">
-                💼 就活モード
-            </button>
-            <button id="exchangeModeBtn" type="button">
-                🌏 国際交流モード
-            </button>
-        </div>
-
-        <div id="relationshipProfilePage" class="hidden">
-            <h2>人間関係モード登録</h2>
-            <select id="targetGender">
-                <option value="">表示したい性別</option>
-                <option value="male">男性</option>
-                <option value="female">女性</option>
-                <option value="both">どちらも</option>
-            </select>
-            <select id="relationshipGoal">
-                <option value="">選択してください</option>
-                <option value="friend">友達募集</option>
-                <option value="lover">恋人募集</option>
-                <option value="both">両方</option>
-            </select>
-            <input
-                type="text"
-                id="weekendStyle"
-                placeholder="休日の過ごし方">
-            <textarea
-                id="idealPartner"
-                placeholder="どんな人と出会いたい？"></textarea>
-            <button id="saveRelationshipProfileBtn" type="button">
-                保存
-            </button>
-        </div>
-
-        <div id="studyProfilePage" class="hidden">
-            <h2>学習モード登録</h2>
-            <input
-                type="text"
-                id="studyTopic"
-                placeholder="学習したい内容">
-            <select id="studyFrequency">
-                <option value="">学習頻度</option>
-                <option value="week1">週1回</option>
-                <option value="week2">週2回</option>
-                <option value="week3">週3回以上</option>
-            </select>
-            <input
-                type="text"
-                id="studyGoal"
-                placeholder="目標">
-            <button id="saveStudyProfileBtn" type="button">
-                保存
-            </button>
-        </div>
-
-        <div id="hobbyProfilePage" class="hidden">
-            <h2>趣味モード登録</h2>
-            <input
-                type="text"
-                id="hobby"
-                placeholder="好きな趣味">
-            <input
-                type="text"
-                id="hobbyFrequency"
-                placeholder="活動頻度">
-            <textarea
-                id="hobbyActivity"
-                placeholder="一緒にやりたいこと"></textarea>
-            <button id="saveHobbyProfileBtn" type="button">
-                保存
-            </button>
-        </div>
-
-        <div id="careerProfilePage" class="hidden">
-            <h2>就活モード登録</h2>
-            <input
-                type="text"
-                id="graduateYear"
-                placeholder="卒業年度">
-            <input
-                type="text"
-                id="industry"
-                placeholder="志望業界">
-            <textarea
-                id="consultation"
-                placeholder="相談したい内容"></textarea>
-            <button id="saveCareerProfileBtn" type="button">
-                保存
-            </button>
-        </div>
-
-        <div id="exchangeProfilePage" class="hidden">
-            <h2>国際交流モード登録</h2>
-            <select id="exchangeType">
-                <option value="">属性を選択</option>
-                <option value="international">留学生</option>
-                <option value="japanese">日本人学生</option>
-            </select>
-            <fieldset>
-                <legend>話せる言語（複数選択）</legend>
-                <label><input type="checkbox" name="exchangeSpeakLanguages" value="日本語">日本語</label>
-                <label><input type="checkbox" name="exchangeSpeakLanguages" value="英語">英語</label>
-                <label><input type="checkbox" name="exchangeSpeakLanguages" value="中国語">中国語</label>
-                <label><input type="checkbox" name="exchangeSpeakLanguages" value="韓国語">韓国語</label>
-                <label><input type="checkbox" name="exchangeSpeakLanguages" value="ロシア語">ロシア語</label>
-                <label><input type="checkbox" name="exchangeSpeakLanguages" value="ベトナム語">ベトナム語</label>
-            </fieldset>
-            <fieldset>
-                <legend>学びたい言語（複数選択）</legend>
-                <label><input type="checkbox" name="exchangeLearnLanguages" value="日本語">日本語</label>
-                <label><input type="checkbox" name="exchangeLearnLanguages" value="英語">英語</label>
-                <label><input type="checkbox" name="exchangeLearnLanguages" value="中国語">中国語</label>
-                <label><input type="checkbox" name="exchangeLearnLanguages" value="韓国語">韓国語</label>
-                <label><input type="checkbox" name="exchangeLearnLanguages" value="ロシア語">ロシア語</label>
-                <label><input type="checkbox" name="exchangeLearnLanguages" value="ベトナム語">ベトナム語</label>
-            </fieldset>
-            <select id="exchangePurpose">
-                <option value="">国際交流の目的を選択</option>
-                <option value="友達作り">友達作り</option>
-                <option value="語学学習">語学学習</option>
-                <option value="文化交流">文化交流</option>
-                <option value="イベント参加">イベント参加</option>
-            </select>
-            <button id="saveExchangeProfileBtn" type="button">保存</button>
-        </div>
-
-        <div id="matchListPage" class="hidden">
-            <h2>マッチ一覧</h2>
-            <div id="matchList"></div>
-            <div id="matchPagination"></div>
-            <button id="toggleBlockedUsersBtn" type="button">
-                ブロックした人を管理
-            </button>
-            <section id="blockedUsersSection" class="hidden">
-                <h3>ブロックした人</h3>
-                <div id="blockedUsersList"></div>
-            </section>
-        </div>
-
-        <div id="matchProfilePage" class="hidden">
-            <button id="backToMatchListBtn" type="button">戻る</button>
-            <img id="matchProfileImage" class="hidden" alt="プロフィール画像">
-            <h2 id="matchProfileNickname"></h2>
-            <p id="matchProfileFaculty"></p>
-            <p id="matchProfileDepartment"></p>
-            <p id="matchProfileGender"></p>
-            <p id="matchProfileGrade"></p>
-            <p id="matchProfileBio"></p>
-        </div>
-
-        <div id="chatPage" class="hidden">
-            <button id="backToMatchesBtn" type="button">マッチ一覧に戻る</button>
-            <h2 id="chatPartnerName"></h2>
-            <p class="chatSafetyNotice">
-                試験運用につき、<strong>連絡先の交換や実際に会うことは絶対にやめてください</strong>
-            </p>
-            <p id="messageRemain">残り送信回数 5/5</p>
-            <p id="messageLimitNotice" class="hidden">
-                送信上限に達しました。<br>
-                連絡先交換済みの場合は、LINEやDiscordへ移行してください。
-            </p>
-            <p id="chatBlockedNotice" class="hidden">
-                ブロックされたため、このチャットは利用できません。
-            </p>
-            <div id="chatMessages" class="chatMessages"></div>
-            <textarea id="messageInput" placeholder="メッセージを入力"></textarea>
-            <button id="sendMessageBtn" type="button">送信</button>
-            <button id="blockUserBtn" type="button">🚫 このユーザーをブロック</button>
-            <button id="reportUserBtn" type="button">🚨 このユーザーを通報</button>
-        </div>
-
-    </div>
-
-    <script>
-
-        function showRegister() {
-            document
-                .getElementById("loginForm")
-                .classList.add("hidden");
-
-            document
-                .getElementById("registerForm")
-                .classList.remove("hidden");
-        }
-
-        function showLogin() {
-            document
-                .getElementById("registerForm")
-                .classList.add("hidden");
-
-            document
-                .getElementById("loginForm")
-                .classList.remove("hidden");
-        }
-
-    </script>
-
-    <script type="module" src="firebase.js"></script>
-
+    <main>
+        <img class="logo" src="./SaiMatch.png" alt="SaiMatch">
+        <h1>アンケートへのご協力お願いします。</h1>
+        <button class="button" type="button" disabled aria-disabled="true">
+            アンケート（準備中）
+        </button>
+        <a class="button" href="./app.html">SaiMatchを利用してみる</a>
+    </main>
 </body>
-
 </html>

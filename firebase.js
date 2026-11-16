@@ -62,6 +62,7 @@ let unsubscribeBlockStatus = [];
 let chatBlocked = false;
 let matchesWithProfiles = [];
 let currentMatchPage = 0;
+let matchProfileLoadId = 0;
 const MAX_MESSAGES_PER_USER = 5;
 const MATCHES_PER_PAGE = 5;
 const MAX_PROFILE_IMAGE_SIZE = 1024 * 1024;
@@ -490,6 +491,33 @@ document
 // ログイン
 // ====================
 
+function getLoginErrorMessage(error) {
+    const messages = {
+        "auth/invalid-credential":
+            "メールアドレスまたはパスワードが正しくありません。入力内容をご確認ください。",
+        "auth/invalid-login-credentials":
+            "メールアドレスまたはパスワードが正しくありません。入力内容をご確認ください。",
+        "auth/user-not-found":
+            "このメールアドレスのアカウントが見つかりません。入力内容をご確認ください。",
+        "auth/wrong-password":
+            "パスワードが正しくありません。もう一度ご確認ください。",
+        "auth/invalid-email":
+            "メールアドレスの形式をご確認ください。",
+        "auth/missing-email":
+            "メールアドレスを入力してください。",
+        "auth/missing-password":
+            "パスワードを入力してください。",
+        "auth/user-disabled":
+            "このアカウントは現在ご利用いただけません。",
+        "auth/too-many-requests":
+            "ログインに何度も失敗したため、一時的に制限されています。しばらくしてからお試しください。",
+        "auth/network-request-failed":
+            "通信に失敗しました。インターネット接続を確認して、もう一度お試しください。"
+    };
+    return messages[error?.code] ||
+        "ログインできませんでした。入力内容と通信状況をご確認のうえ、もう一度お試しください。";
+}
+
 const loginNoticeAcknowledged = document.getElementById(
     "loginNoticeAcknowledged"
 );
@@ -521,11 +549,9 @@ document
                 password
             );
 
-            alert("ログイン成功");
-
         } catch (error) {
 
-            alert(error.message);
+            alert(getLoginErrorMessage(error));
 
         }
 
@@ -1218,7 +1244,7 @@ function renderMatchPage() {
         profileButton.type = "button";
         profileButton.textContent = "プロフィール";
         profileButton.addEventListener("click", () => {
-            showMatchProfile(profile);
+            showMatchProfile(match, partnerId, profile);
         });
 
         const chatButton = document.createElement("button");
@@ -1358,7 +1384,79 @@ document
         }
     });
 
-function showMatchProfile(profile) {
+function renderMatchedModeProfiles(modeProfiles) {
+    const container = document.getElementById("matchModeProfiles");
+    container.replaceChildren();
+
+    if (modeProfiles.length === 0) {
+        container.textContent = "マッチしたモードのプロフィール情報はありません";
+        return;
+    }
+
+    modeProfiles.forEach(({ mode, profile }) => {
+        const config = MODE_CONFIG[mode];
+        const section = document.createElement("section");
+        section.className = "matchModeProfile";
+        const heading = document.createElement("h3");
+        heading.textContent = `${config.icon} ${config.title}プロフィール`;
+        section.append(heading);
+
+        if (!profile) {
+            const unavailable = document.createElement("p");
+            unavailable.textContent = "プロフィールを取得できません";
+            section.append(unavailable);
+            container.append(section);
+            return;
+        }
+
+        const fields = document.createElement("dl");
+        fields.className = "matchModeProfileFields";
+        config.fields.forEach((field) => {
+            const rawValue = profile[field.key];
+            const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+            const displayValues = values
+                .filter((value) =>
+                    (typeof value === "string" || typeof value === "number") &&
+                    String(value).trim()
+                )
+                .map((value) => {
+                    const text = String(value).trim();
+                    return field.displayValues?.[text] || text;
+                });
+
+            const label = document.createElement("dt");
+            label.textContent = field.label;
+            const value = document.createElement("dd");
+            value.textContent = displayValues.length > 0
+                ? displayValues.join("、")
+                : "未設定";
+            fields.append(label, value);
+        });
+        section.append(fields);
+        container.append(section);
+    });
+}
+
+async function showMatchProfile(match, partnerId, profile) {
+    const currentUser = auth.currentUser;
+    const isMatchParticipant = currentUser && match && (
+        (match.user1 === currentUser.uid && match.user2 === partnerId) ||
+        (match.user2 === currentUser.uid && match.user1 === partnerId)
+    );
+    if (!isMatchParticipant) {
+        alert("マッチ情報を確認できません");
+        return;
+    }
+
+    const loadId = ++matchProfileLoadId;
+    const matchedModes = [...new Set([
+        ...(Array.isArray(match.modes) ? match.modes : []),
+        ...(typeof match.mode === "string" ? [match.mode] : [])
+    ])].filter((mode) =>
+        typeof mode === "string" &&
+        Object.prototype.hasOwnProperty.call(MODE_CONFIG, mode)
+    );
+
     stopListeningToMessages();
     hideModePages();
     document.getElementById("matchListPage").classList.add("hidden");
@@ -1388,11 +1486,48 @@ function showMatchProfile(profile) {
         profile.grade ? `${profile.grade}年` : "";
     document.getElementById("matchProfileBio").textContent =
         profile.bio || "";
+    const modeProfilesContainer = document.getElementById("matchModeProfiles");
+    modeProfilesContainer.textContent = matchedModes.length > 0
+        ? "読み込み中..."
+        : "マッチしたモードのプロフィール情報はありません";
+
+    if (matchedModes.length === 0) {
+        return;
+    }
+
+    try {
+        const modeProfiles = await Promise.all(
+            matchedModes.map(async (mode) => {
+                const snapshot = await getDoc(
+                    doc(db, `${mode}Profiles`, partnerId)
+                );
+                return {
+                    mode,
+                    profile: snapshot.exists() ? snapshot.data() : null
+                };
+            })
+        );
+
+        if (
+            loadId !== matchProfileLoadId ||
+            auth.currentUser?.uid !== currentUser.uid ||
+            document.getElementById("matchProfilePage").classList.contains("hidden")
+        ) {
+            return;
+        }
+        renderMatchedModeProfiles(modeProfiles);
+    } catch (error) {
+        if (loadId === matchProfileLoadId) {
+            modeProfilesContainer.textContent = "プロフィールの読み込みに失敗しました";
+            alert(error.message);
+        }
+    }
 }
 
 document
     .getElementById("backToMatchListBtn")
     .addEventListener("click", () => {
+        matchProfileLoadId++;
         document.getElementById("matchProfilePage").classList.add("hidden");
         document.getElementById("matchListPage").classList.remove("hidden");
     });
@@ -1426,13 +1561,13 @@ async function openChat(match, partnerId, partnerName) {
     document.getElementById("userListPage").classList.add("hidden");
     document.getElementById("profileForm").classList.add("hidden");
     document.getElementById("chatPage").classList.remove("hidden");
-    document.getElementById("mainNavigation").classList.add("hidden");
     document.getElementById("chatPartnerName").textContent = partnerName;
     document.getElementById("messageRemain").textContent =
         `残り送信回数 ${MAX_MESSAGES_PER_USER}/${MAX_MESSAGES_PER_USER}`;
     document.getElementById("messageRemain").dataset.remaining =
         String(MAX_MESSAGES_PER_USER);
     document.getElementById("messageLimitNotice").classList.add("hidden");
+    document.getElementById("lastMessageWarning").classList.add("hidden");
     document.getElementById("chatBlockedNotice").classList.add("hidden");
     document.getElementById("messageInput").disabled = false;
     document.getElementById("sendMessageBtn").disabled = false;
@@ -1578,6 +1713,10 @@ function updateMessageLimitView(matchData, userId) {
     document.getElementById("messageLimitNotice").classList.toggle(
         "hidden",
         remaining > 0
+    );
+    document.getElementById("lastMessageWarning").classList.toggle(
+        "hidden",
+        remaining !== 1
     );
     document.getElementById("sendMessageBtn").disabled =
         chatBlocked || remaining === 0;
@@ -1744,11 +1883,12 @@ document
                     "hidden",
                     remaining > 0
                 );
+                document.getElementById("lastMessageWarning").classList.toggle(
+                    "hidden",
+                    remaining !== 1
+                );
                 sendButton.disabled = remaining === 0;
                 document.getElementById("messageInput").value = "";
-            }
-            if (remaining === 1) {
-                alert("残り1回です。\n\n連絡先の交換はしましたか？");
             }
         } catch (error) {
             alert(error.message);

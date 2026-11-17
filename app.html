@@ -253,6 +253,28 @@
             white-space: pre-wrap;
         }
 
+        .groupSuggestion {
+            margin: 16px 0;
+            padding: 16px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+
+        .groupSuggestion h3 {
+            margin-top: 0;
+        }
+
+        .groupSuggestionTags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .groupSuggestionMembers {
+            margin-bottom: 0;
+            padding-left: 24px;
+        }
+
         .chatMessages {
             max-height: 300px;
             overflow-y: auto;
@@ -454,7 +476,7 @@
                 id="profileImage"
                 accept="image/*">
             <small>
-                プロフィール写真は中央を切り抜き、512×512pxに変換して保存されます。
+                プロフィール写真は中央を正方形に切り抜き、画質を落として保存されます。
             </small>
 
             <input
@@ -482,10 +504,15 @@
 
             <select id="grade">
                 <option value="">学年選択</option>
-                <option value="1">1年</option>
-                <option value="2">2年</option>
-                <option value="3">3年</option>
-                <option value="4">4年</option>
+                <option value="B1">学部1年（B1）</option>
+                <option value="B2">学部2年（B2）</option>
+                <option value="B3">学部3年（B3）</option>
+                <option value="B4">学部4年（B4）</option>
+                <option value="M1">修士1年（M1）</option>
+                <option value="M2">修士2年（M2）</option>
+                <option value="D1">博士1年（D1）</option>
+                <option value="D2">博士2年（D2）</option>
+                <option value="D3">博士3年（D3）</option>
             </select>
 
             <textarea
@@ -556,6 +583,10 @@
             <button id="matchesNavBtn" type="button">
                 <span class="navIcon" aria-hidden="true">❤️</span>
                 <span>マッチ一覧</span>
+            </button>
+            <button id="groupsNavBtn" type="button">
+                <span class="navIcon" aria-hidden="true">👥</span>
+                <span>グループ候補</span>
             </button>
             <button id="profileNavBtn" type="button">
                 <span class="navIcon" aria-hidden="true">👤</span>
@@ -715,6 +746,11 @@
                 <h3>ブロックした人</h3>
                 <div id="blockedUsersList"></div>
             </section>
+        </div>
+
+        <div id="groupSuggestionsPage" class="hidden">
+            <h2>グループ候補</h2>
+            <div id="groupSuggestionsList"></div>
         </div>
 
         <div id="matchProfilePage" class="hidden">

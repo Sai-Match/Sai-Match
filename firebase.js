@@ -63,10 +63,16 @@ let chatBlocked = false;
 let matchesWithProfiles = [];
 let currentMatchPage = 0;
 let matchProfileLoadId = 0;
+let groupSuggestionRefreshTimer = null;
+let groupSuggestionRenderId = 0;
 const MAX_MESSAGES_PER_USER = 5;
 const MATCHES_PER_PAGE = 5;
 const PROFILE_IMAGE_SIZE = 512;
 const MAX_PROFILE_IMAGE_SOURCE_SIZE = 20 * 1024 * 1024;
+const GROUP_SUGGESTION_MODES = ["relationship", "hobby", "exchange"];
+const MAX_GROUP_SUGGESTIONS = 12;
+const GROUP_SUGGESTION_REFRESH_HOUR = 4;
+const GROUP_SUGGESTION_CACHE_PREFIX = "groupSuggestions:";
 const GENDER_LABELS = {
     male: "男性",
     female: "女性",
@@ -232,6 +238,536 @@ async function isBlockedBetweenUsers(firstUserId, secondUserId) {
         ))
     ]);
     return !firstToSecond.empty || !secondToFirst.empty;
+}
+
+function normalizeGrade(grade) {
+    if (typeof grade !== "string" && typeof grade !== "number") {
+        return "";
+    }
+
+    const value = String(grade).trim().toUpperCase();
+    const legacyGrade = value.match(/^([1-4])(?:年)?$/);
+    if (legacyGrade) {
+        return `B${legacyGrade[1]}`;
+    }
+    return /^(B[1-4]|M[1-2]|D[1-3])$/.test(value) ? value : "";
+}
+
+function getGroupSuggestionPeriodKey(date = new Date()) {
+    const periodDate = new Date(date.getTime());
+    periodDate.setHours(
+        periodDate.getHours() - GROUP_SUGGESTION_REFRESH_HOUR
+    );
+    const year = periodDate.getFullYear();
+    const month = String(periodDate.getMonth() + 1).padStart(2, "0");
+    const day = String(periodDate.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+function shuffleItems(items) {
+    const shuffled = [...items];
+    for (let index = shuffled.length - 1; index > 0; index--) {
+        const randomIndex = Math.floor(Math.random() * (index + 1));
+        [shuffled[index], shuffled[randomIndex]] =
+            [shuffled[randomIndex], shuffled[index]];
+    }
+    return shuffled;
+}
+
+function pickGroupMembers(pool, count, excludedIds) {
+    const available = shuffleItems(
+        pool.filter((profile) => !excludedIds.has(profile.id))
+    );
+    if (available.length < count) {
+        return null;
+    }
+    return available.slice(0, count);
+}
+
+function hasMixedGrades(members) {
+    return new Set(members.map((profile) => profile.normalizedGrade)).size > 1;
+}
+
+function areGroupsTooSimilar(first, second) {
+    const secondIds = new Set(second.members);
+    const commonCount = first.members.filter((id) => secondIds.has(id)).length;
+    return commonCount / Math.max(first.members.length, second.members.length) >= 0.5;
+}
+
+function createGroupCandidate(
+    type,
+    gradeType,
+    currentProfile,
+    allProfiles,
+    mutualProfiles
+) {
+    const genderOf = (profile) => {
+        if (profile.gender === "male" || profile.gender === "female") {
+            return profile.gender;
+        }
+        return "other";
+    };
+    const baseProfiles = allProfiles.filter((profile) =>
+        profile.id !== currentProfile.id &&
+        (
+            gradeType !== "same" ||
+            profile.normalizedGrade === currentProfile.normalizedGrade
+        )
+    );
+    const baseMutualProfiles = mutualProfiles.filter((profile) =>
+        gradeType !== "same" ||
+        profile.normalizedGrade === currentProfile.normalizedGrade
+    );
+
+    for (let attempt = 0; attempt < 12; attempt++) {
+        const selected = [currentProfile];
+        const selectedIds = new Set([currentProfile.id]);
+        const addRequired = (gender, count) => {
+            const picked = pickGroupMembers(
+                baseMutualProfiles.filter((profile) => genderOf(profile) === gender),
+                count,
+                selectedIds
+            );
+            if (!picked) {
+                return false;
+            }
+            picked.forEach((profile) => {
+                selected.push(profile);
+                selectedIds.add(profile.id);
+            });
+            return true;
+        };
+        const addFromAllUsers = (gender, count) => {
+            const picked = pickGroupMembers(
+                baseProfiles.filter((profile) => genderOf(profile) === gender),
+                count,
+                selectedIds
+            );
+            if (!picked) {
+                return false;
+            }
+            picked.forEach((profile) => {
+                selected.push(profile);
+                selectedIds.add(profile.id);
+            });
+            return true;
+        };
+
+        if (type === "male" || type === "female") {
+            if (currentProfile.gender !== type || !addRequired(type, 2)) {
+                continue;
+            }
+            if (!addFromAllUsers(type, 4 - selected.length)) {
+                continue;
+            }
+        } else {
+            const neutralUser = genderOf(currentProfile) === "other";
+            let requiredGenderCounts;
+            if (neutralUser) {
+                requiredGenderCounts = shuffleItems([
+                    { male: 1, female: 2 },
+                    { male: 2, female: 1 }
+                ])[0];
+            } else {
+                const oppositeGender = currentProfile.gender === "male"
+                    ? "female"
+                    : "male";
+                requiredGenderCounts = {
+                    [currentProfile.gender]: 1,
+                    [oppositeGender]: 2
+                };
+            }
+
+            if (
+                !addRequired("male", requiredGenderCounts.male) ||
+                !addRequired("female", requiredGenderCounts.female)
+            ) {
+                continue;
+            }
+
+            const neutralCandidates = baseProfiles.filter(
+                (profile) => genderOf(profile) === "other"
+            );
+            const mixedGenderTargets = neutralUser
+                ? [
+                    { male: 2, female: 3, other: 1 },
+                    { male: 3, female: 2, other: 1 }
+                ]
+                : [
+                    { male: 3, female: 3, other: 0 },
+                    ...(neutralCandidates.length > 0
+                        ? [
+                            { male: 2, female: 3, other: 1 },
+                            { male: 3, female: 2, other: 1 }
+                        ]
+                        : [])
+                ];
+            let completed = false;
+            for (const target of shuffleItems(mixedGenderTargets)) {
+                const checkpoint = [...selected];
+                const checkpointIds = new Set(selectedIds);
+                if (
+                    addFromAllUsers("male", target.male -
+                        selected.filter((profile) => genderOf(profile) === "male").length) &&
+                    addFromAllUsers("female", target.female -
+                        selected.filter((profile) => genderOf(profile) === "female").length) &&
+                    addFromAllUsers("other", target.other -
+                        selected.filter((profile) => genderOf(profile) === "other").length)
+                ) {
+                    completed = true;
+                    break;
+                }
+                selected.splice(0, selected.length, ...checkpoint);
+                selectedIds.clear();
+                checkpointIds.forEach((id) => selectedIds.add(id));
+            }
+            if (!completed) {
+                continue;
+            }
+        }
+
+        if (
+            selected.length !== (type === "mixed" ? 6 : 4) ||
+            (gradeType === "mixed" && !hasMixedGrades(selected))
+        ) {
+            continue;
+        }
+
+        return {
+            type,
+            grade: gradeType,
+            members: selected.map((profile) => profile.id)
+        };
+    }
+    return null;
+}
+
+async function getMutualLikes() {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+        throw new Error("ログインしてください");
+    }
+
+    const [likesSent, likesReceived] = await Promise.all([
+        getDocs(query(
+            collection(db, "likes"),
+            where("fromUserId", "==", currentUser.uid)
+        )),
+        getDocs(query(
+            collection(db, "likes"),
+            where("toUserId", "==", currentUser.uid)
+        ))
+    ]);
+    const sentPairs = new Set();
+    likesSent.forEach((likeDoc) => {
+        const like = likeDoc.data();
+        if (
+            GROUP_SUGGESTION_MODES.includes(like.mode) &&
+            like.toUserId
+        ) {
+            sentPairs.add(`${like.mode}:${like.toUserId}`);
+        }
+    });
+
+    return [...new Set(likesReceived.docs
+        .map((likeDoc) => likeDoc.data())
+        .filter((like) =>
+            GROUP_SUGGESTION_MODES.includes(like.mode) &&
+            like.fromUserId &&
+            sentPairs.has(`${like.mode}:${like.fromUserId}`)
+        )
+        .map((like) => like.fromUserId)
+        .filter((userId) => userId !== currentUser.uid))];
+}
+
+async function getUserProfiles(userIds) {
+    return Promise.all(userIds.map(async (userId) => {
+        const snapshot = await getDoc(doc(db, "users", userId));
+        return snapshot.exists()
+            ? { id: userId, ...snapshot.data() }
+            : null;
+    }));
+}
+
+async function generateGroups() {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+        throw new Error("ログインしてください");
+    }
+
+    const [
+        mutualIds,
+        usersSnapshot,
+        blockedByCurrentUser,
+        blockingCurrentUser
+    ] = await Promise.all([
+        getMutualLikes(),
+        getDocs(collection(db, "users")),
+        getDocs(query(
+            collection(db, "blocks"),
+            where("fromUserId", "==", currentUser.uid)
+        )),
+        getDocs(query(
+            collection(db, "blocks"),
+            where("toUserId", "==", currentUser.uid)
+        ))
+    ]);
+    if (auth.currentUser?.uid !== currentUser.uid) {
+        return [];
+    }
+
+    const excludedIds = new Set([
+        currentUser.uid,
+        ...blockedByCurrentUser.docs.map((blockDoc) =>
+            blockDoc.data().toUserId
+        ),
+        ...blockingCurrentUser.docs.map((blockDoc) =>
+            blockDoc.data().fromUserId
+        )
+    ]);
+    const allProfiles = usersSnapshot.docs
+        .map((userDoc) => ({
+            id: userDoc.id,
+            ...userDoc.data(),
+            normalizedGrade: normalizeGrade(userDoc.data().grade)
+        }))
+        .filter((profile) =>
+            !excludedIds.has(profile.id) &&
+            profile.normalizedGrade &&
+            ["male", "female", "other", "no_answer"].includes(profile.gender)
+        );
+    const currentSnapshot = usersSnapshot.docs.find(
+        (userDoc) => userDoc.id === currentUser.uid
+    );
+    if (!currentSnapshot) {
+        throw new Error("プロフィールが見つかりません");
+    }
+    const currentProfileData = currentSnapshot.data();
+    const currentProfile = {
+        id: currentUser.uid,
+        ...currentProfileData,
+        normalizedGrade: normalizeGrade(currentProfileData.grade)
+    };
+    if (
+        !currentProfile.normalizedGrade ||
+        !["male", "female", "other", "no_answer"].includes(currentProfile.gender)
+    ) {
+        throw new Error("グループ候補を作るには、プロフィールで性別と学年を登録してください");
+    }
+    allProfiles.push(currentProfile);
+
+    const profilesById = new Map(
+        allProfiles.map((profile) => [profile.id, profile])
+    );
+    const mutualProfiles = mutualIds
+        .map((userId) => profilesById.get(userId))
+        .filter((profile) =>
+            profile &&
+            ["male", "female", "other", "no_answer"].includes(profile.gender)
+        );
+    const eligibleTypes = currentProfile.gender === "male"
+        ? ["mixed", "male"]
+        : currentProfile.gender === "female"
+            ? ["mixed", "female"]
+            : ["mixed"];
+    const categories = [
+        ["mixed", "same"],
+        ["male", "same"],
+        ["female", "same"],
+        ["mixed", "mixed"],
+        ["male", "mixed"],
+        ["female", "mixed"]
+    ].filter(([type]) => eligibleTypes.includes(type));
+    const groups = [];
+
+    for (let round = 0; round < 2; round++) {
+        for (const [type, gradeType] of categories) {
+            if (groups.length >= MAX_GROUP_SUGGESTIONS) {
+                return groups;
+            }
+            for (let attempt = 0; attempt < 24; attempt++) {
+                const candidate = createGroupCandidate(
+                    type,
+                    gradeType,
+                    currentProfile,
+                    allProfiles,
+                    mutualProfiles
+                );
+                if (
+                    candidate &&
+                    !groups.some((existing) =>
+                        areGroupsTooSimilar(existing, candidate)
+                    )
+                ) {
+                    groups.push(candidate);
+                    break;
+                }
+            }
+        }
+    }
+    return groups;
+}
+
+function getGroupSuggestionsCacheKey(userId) {
+    return `${GROUP_SUGGESTION_CACHE_PREFIX}${userId}`;
+}
+
+function readGroupSuggestionsCache(userId) {
+    const cache = localStorage.getItem(getGroupSuggestionsCacheKey(userId));
+    if (!cache) {
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(cache);
+        if (
+            parsed.periodKey === getGroupSuggestionPeriodKey() &&
+            Array.isArray(parsed.groups) &&
+            parsed.groups.length <= MAX_GROUP_SUGGESTIONS
+        ) {
+            return parsed.groups;
+        }
+    } catch (error) {
+        localStorage.removeItem(getGroupSuggestionsCacheKey(userId));
+    }
+    return null;
+}
+
+async function renderGroupSuggestions(groups, userId) {
+    const renderId = ++groupSuggestionRenderId;
+    const list = document.getElementById("groupSuggestionsList");
+    if (groups.length === 0) {
+        list.textContent = "条件に合うグループ候補がありません";
+        return;
+    }
+
+    list.textContent = "メンバーを読み込み中...";
+    const profileIds = [...new Set(groups.flatMap((group) => group.members))];
+    const profiles = await getUserProfiles(profileIds);
+    if (
+        renderId !== groupSuggestionRenderId ||
+        auth.currentUser?.uid !== userId ||
+        document.getElementById("groupSuggestionsPage").classList.contains("hidden")
+    ) {
+        return;
+    }
+    const profilesById = new Map(
+        profiles.filter(Boolean).map((profile) => [profile.id, profile])
+    );
+    list.replaceChildren();
+
+    groups.forEach((group, index) => {
+        const card = document.createElement("section");
+        card.className = "groupSuggestion";
+        const heading = document.createElement("h3");
+        heading.textContent = `グループ候補${index + 1}`;
+        const tags = document.createElement("p");
+        tags.className = "groupSuggestionTags";
+        const typeTag = document.createElement("span");
+        typeTag.textContent = group.type === "mixed"
+            ? "👥 男女混合"
+            : group.type === "male"
+                ? "👨 男性限定"
+                : "👩 女性限定";
+        const gradeTag = document.createElement("span");
+        gradeTag.textContent = group.grade === "same"
+            ? "🎓 同学年"
+            : "🎓 学年混合";
+        tags.append(typeTag, gradeTag);
+        const members = document.createElement("ul");
+        members.className = "groupSuggestionMembers";
+        group.members.forEach((userId) => {
+            const member = document.createElement("li");
+            const profile = profilesById.get(userId);
+            member.textContent = profile?.nickname || "名前未設定";
+            members.append(member);
+        });
+        card.append(heading, tags, members);
+        list.append(card);
+    });
+}
+
+async function refreshGroupSuggestions(userId) {
+    const groups = await generateGroups();
+    if (auth.currentUser?.uid !== userId) {
+        return;
+    }
+    localStorage.setItem(getGroupSuggestionsCacheKey(userId), JSON.stringify({
+        periodKey: getGroupSuggestionPeriodKey(),
+        groups
+    }));
+    if (
+        !document.getElementById("groupSuggestionsPage")
+            .classList.contains("hidden")
+    ) {
+        await renderGroupSuggestions(groups, userId);
+    }
+}
+
+function scheduleGroupSuggestionRefresh(userId) {
+    if (groupSuggestionRefreshTimer !== null) {
+        clearTimeout(groupSuggestionRefreshTimer);
+        groupSuggestionRefreshTimer = null;
+    }
+    if (!userId) {
+        return;
+    }
+
+    const nextRefresh = new Date();
+    nextRefresh.setHours(GROUP_SUGGESTION_REFRESH_HOUR, 0, 0, 0);
+    if (nextRefresh.getTime() <= Date.now()) {
+        nextRefresh.setDate(nextRefresh.getDate() + 1);
+    }
+    groupSuggestionRefreshTimer = setTimeout(async () => {
+        try {
+            if (auth.currentUser?.uid === userId) {
+                await refreshGroupSuggestions(userId);
+            }
+        } catch (error) {
+            if (
+                auth.currentUser?.uid === userId &&
+                !document.getElementById("groupSuggestionsPage")
+                    .classList.contains("hidden")
+            ) {
+                document.getElementById("groupSuggestionsList").textContent =
+                    `候補の更新に失敗しました: ${error.message}`;
+            }
+        } finally {
+            scheduleGroupSuggestionRefresh(auth.currentUser?.uid);
+        }
+    }, nextRefresh.getTime() - Date.now());
+}
+
+async function showGroupSuggestions() {
+    const currentUser = auth.currentUser;
+    const list = document.getElementById("groupSuggestionsList");
+    if (!currentUser) {
+        list.textContent = "ログインしてください";
+        return;
+    }
+
+    groupSuggestionRenderId++;
+    stopListeningToMessages();
+    document.getElementById("userListPage").classList.add("hidden");
+    document.getElementById("profileForm").classList.add("hidden");
+    document.getElementById("matchListPage").classList.add("hidden");
+    document.getElementById("matchProfilePage").classList.add("hidden");
+    document.getElementById("chatPage").classList.add("hidden");
+    hideModePages();
+    document.getElementById("groupSuggestionsPage").classList.remove("hidden");
+    document.getElementById("mainNavigation").classList.remove("hidden");
+    scheduleGroupSuggestionRefresh(currentUser.uid);
+
+    try {
+        const cachedGroups = readGroupSuggestionsCache(currentUser.uid);
+        if (cachedGroups) {
+            await renderGroupSuggestions(cachedGroups, currentUser.uid);
+            return;
+        }
+        list.textContent = "グループ候補を作成しています...";
+        await refreshGroupSuggestions(currentUser.uid);
+    } catch (error) {
+        list.textContent = `候補を読み込めませんでした: ${error.message}`;
+    }
 }
 
 function compressProfileImage(file) {
@@ -547,6 +1083,7 @@ function showLogin() {
     document.getElementById("userListPage").classList.add("hidden");
     hideModePages();
     document.getElementById("matchListPage").classList.add("hidden");
+    document.getElementById("groupSuggestionsPage").classList.add("hidden");
     document.getElementById("matchProfilePage").classList.add("hidden");
     document.getElementById("chatPage").classList.add("hidden");
     document.getElementById("mainNavigation").classList.add("hidden");
@@ -566,6 +1103,7 @@ async function showProfile(user, profileData = null, showNavigation = false) {
     document.getElementById("userListPage").classList.add("hidden");
     hideModePages();
     document.getElementById("matchListPage").classList.add("hidden");
+    document.getElementById("groupSuggestionsPage").classList.add("hidden");
     document.getElementById("matchProfilePage").classList.add("hidden");
     document.getElementById("chatPage").classList.add("hidden");
     document.getElementById("profileForm").classList.remove("hidden");
@@ -573,7 +1111,7 @@ async function showProfile(user, profileData = null, showNavigation = false) {
     document.getElementById("faculty").value = profileData.faculty || "";
     document.getElementById("department").value = profileData.department || "";
     document.getElementById("gender").value = profileData.gender || "";
-    document.getElementById("grade").value = profileData.grade || "";
+    document.getElementById("grade").value = normalizeGrade(profileData.grade);
     document.getElementById("bio").value = profileData.bio || "";
     document.getElementById("profileImage").value = "";
     document.getElementById("profileFormTitle").textContent =
@@ -608,6 +1146,7 @@ async function showUserList(user, mode = currentMode) {
     document.getElementById("profileForm").classList.add("hidden");
     hideModePages();
     document.getElementById("matchListPage").classList.add("hidden");
+    document.getElementById("groupSuggestionsPage").classList.add("hidden");
     document.getElementById("matchProfilePage").classList.add("hidden");
     document.getElementById("chatPage").classList.add("hidden");
     document.getElementById("userListPage").classList.remove("hidden");
@@ -623,6 +1162,7 @@ function showModeProfileForm(mode, profileData = {}, isEditing = false) {
     document.getElementById("profileForm").classList.add("hidden");
     document.getElementById("userListPage").classList.add("hidden");
     document.getElementById("matchListPage").classList.add("hidden");
+    document.getElementById("groupSuggestionsPage").classList.add("hidden");
     document.getElementById("matchProfilePage").classList.add("hidden");
     document.getElementById("chatPage").classList.add("hidden");
     const config = MODE_CONFIG[mode];
@@ -688,6 +1228,7 @@ function showModeSelect() {
     document.getElementById("profileForm").classList.add("hidden");
     hideModePages();
     document.getElementById("matchListPage").classList.add("hidden");
+    document.getElementById("groupSuggestionsPage").classList.add("hidden");
     document.getElementById("matchProfilePage").classList.add("hidden");
     document.getElementById("chatPage").classList.add("hidden");
     document.getElementById("modeSelectPage").classList.remove("hidden");
@@ -774,6 +1315,7 @@ Object.entries(MODE_CONFIG).forEach(([mode, config]) => {
 onAuthStateChanged(auth, async (user) => {
     if (!user) {
         registrationInProgress = false;
+        scheduleGroupSuggestionRefresh(null);
         showLogin();
         return;
     }
@@ -781,6 +1323,7 @@ onAuthStateChanged(auth, async (user) => {
     if (registrationInProgress) {
         return;
     }
+    scheduleGroupSuggestionRefresh(user.uid);
 
     try {
         const userSnapshot = await getDoc(doc(db, "users", user.uid));
@@ -823,6 +1366,10 @@ document
 document
     .getElementById("matchesNavBtn")
     .addEventListener("click", showMatchList);
+
+document
+    .getElementById("groupsNavBtn")
+    .addEventListener("click", showGroupSuggestions);
 
 document
     .getElementById("profileNavBtn")
@@ -1063,9 +1610,11 @@ async function showMatchList() {
     document.getElementById("userListPage").classList.add("hidden");
     document.getElementById("profileForm").classList.add("hidden");
     hideModePages();
+    document.getElementById("groupSuggestionsPage").classList.add("hidden");
     document.getElementById("matchProfilePage").classList.add("hidden");
     document.getElementById("chatPage").classList.add("hidden");
     document.getElementById("matchListPage").classList.remove("hidden");
+    document.getElementById("groupSuggestionsPage").classList.add("hidden");
     document.getElementById("mainNavigation").classList.remove("hidden");
 
     const matchList = document.getElementById("matchList");
@@ -1436,6 +1985,7 @@ async function showMatchProfile(match, partnerId, profile) {
     stopListeningToMessages();
     hideModePages();
     document.getElementById("matchListPage").classList.add("hidden");
+    document.getElementById("groupSuggestionsPage").classList.add("hidden");
     document.getElementById("chatPage").classList.add("hidden");
     document.getElementById("matchProfilePage").classList.remove("hidden");
 
@@ -1459,7 +2009,7 @@ async function showMatchProfile(match, partnerId, profile) {
             ? `性別: ${GENDER_LABELS[profile.gender]}`
             : "";
     document.getElementById("matchProfileGrade").textContent =
-        profile.grade ? `${profile.grade}年` : "";
+        normalizeGrade(profile.grade);
     document.getElementById("matchProfileBio").textContent =
         profile.bio || "";
     const modeProfilesContainer = document.getElementById("matchModeProfiles");
@@ -1536,6 +2086,7 @@ async function openChat(match, partnerId, partnerName) {
     document.getElementById("matchProfilePage").classList.add("hidden");
     document.getElementById("userListPage").classList.add("hidden");
     document.getElementById("profileForm").classList.add("hidden");
+    document.getElementById("groupSuggestionsPage").classList.add("hidden");
     document.getElementById("chatPage").classList.remove("hidden");
     document.getElementById("chatPartnerName").textContent = partnerName;
     document.getElementById("messageRemain").textContent =
@@ -2024,7 +2575,7 @@ function showCurrentUser() {
         GENDER_LABELS[user.gender]
             ? `性別: ${GENDER_LABELS[user.gender]}`
             : "";
-    gradeView.textContent = `${user.grade || ""}年`;
+    gradeView.textContent = normalizeGrade(user.grade);
     bioView.textContent = user.bio || "";
     if (user.profileImageUrl) {
         profileImageView.src = user.profileImageUrl;

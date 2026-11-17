@@ -65,9 +65,8 @@ let currentMatchPage = 0;
 let matchProfileLoadId = 0;
 const MAX_MESSAGES_PER_USER = 5;
 const MATCHES_PER_PAGE = 5;
-const MAX_PROFILE_IMAGE_SIZE = 1024 * 1024;
+const PROFILE_IMAGE_SIZE = 512;
 const MAX_PROFILE_IMAGE_SOURCE_SIZE = 20 * 1024 * 1024;
-const MAX_PROFILE_IMAGE_DIMENSION = 1200;
 const GENDER_LABELS = {
     male: "男性",
     female: "女性",
@@ -240,80 +239,57 @@ function compressProfileImage(file) {
         return Promise.reject(new Error("画像ファイルを選択してください"));
     }
     if (file.size > MAX_PROFILE_IMAGE_SOURCE_SIZE) {
-        return Promise.reject(new Error("画像は20MB以下のファイルを選択してください"));
+        return Promise.reject(new Error("画像は20MB以下にしてください"));
     }
 
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         const image = new Image();
 
-        reader.onerror = () => reject(new Error("画像ファイルを読み込めませんでした"));
+        reader.onerror = () => reject(new Error("画像を読み込めませんでした"));
         reader.onload = () => {
-            image.onerror = () => reject(new Error("画像ファイルを読み込めませんでした"));
-            image.onload = async () => {
-                try {
-                    if (
-                        file.size <= MAX_PROFILE_IMAGE_SIZE &&
-                        image.width <= MAX_PROFILE_IMAGE_DIMENSION &&
-                        image.height <= MAX_PROFILE_IMAGE_DIMENSION
-                    ) {
-                        resolve(file);
-                        return;
-                    }
-
-                    let scale = Math.min(
-                        1,
-                        MAX_PROFILE_IMAGE_DIMENSION / image.width,
-                        MAX_PROFILE_IMAGE_DIMENSION / image.height
-                    );
-                    const canvas = document.createElement("canvas");
-                    const context = canvas.getContext("2d");
-                    if (!context) {
-                        throw new Error("画像を圧縮できませんでした");
-                    }
-
-                    let compressedBlob = null;
-                    while (scale >= 0.2) {
-                        canvas.width = Math.max(1, Math.round(image.width * scale));
-                        canvas.height = Math.max(1, Math.round(image.height * scale));
-                        context.fillStyle = "#fff";
-                        context.fillRect(0, 0, canvas.width, canvas.height);
-                        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-
-                        let quality = 0.8;
-                        compressedBlob = await new Promise((blobResolve) => {
-                            canvas.toBlob(blobResolve, "image/jpeg", quality);
-                        });
-                        while (
-                            compressedBlob &&
-                            compressedBlob.size > MAX_PROFILE_IMAGE_SIZE &&
-                            quality > 0.5
-                        ) {
-                            quality -= 0.1;
-                            compressedBlob = await new Promise((blobResolve) => {
-                                canvas.toBlob(blobResolve, "image/jpeg", quality);
-                            });
-                        }
-                        if (
-                            compressedBlob &&
-                            compressedBlob.size <= MAX_PROFILE_IMAGE_SIZE
-                        ) {
-                            break;
-                        }
-                        scale *= 0.8;
-                    }
-                    if (!compressedBlob) {
-                        throw new Error("画像を圧縮できませんでした");
-                    }
-                    if (compressedBlob.size > MAX_PROFILE_IMAGE_SIZE) {
-                        throw new Error("圧縮後の画像が1MBを超えています");
-                    }
-                    resolve(compressedBlob);
-                } catch (error) {
-                    reject(error);
-                }
-            };
             image.src = reader.result;
+        };
+        image.onerror = () => reject(new Error("画像を読み込めませんでした"));
+        image.onload = () => {
+            try {
+                const canvas = document.createElement("canvas");
+                const context = canvas.getContext("2d");
+                if (!context) {
+                    reject(new Error("画像変換に失敗しました"));
+                    return;
+                }
+
+                canvas.width = PROFILE_IMAGE_SIZE;
+                canvas.height = PROFILE_IMAGE_SIZE;
+                const cropSize = Math.min(image.width, image.height);
+                const sx = (image.width - cropSize) / 2;
+                const sy = (image.height - cropSize) / 2;
+                context.drawImage(
+                    image,
+                    sx,
+                    sy,
+                    cropSize,
+                    cropSize,
+                    0,
+                    0,
+                    PROFILE_IMAGE_SIZE,
+                    PROFILE_IMAGE_SIZE
+                );
+                canvas.toBlob(
+                    (blob) => {
+                        if (!blob) {
+                            reject(new Error("画像変換に失敗しました"));
+                            return;
+                        }
+                        resolve(blob);
+                    },
+                    "image/jpeg",
+                    0.85
+                );
+            } catch (error) {
+                reject(error);
+            }
         };
         reader.readAsDataURL(file);
     });

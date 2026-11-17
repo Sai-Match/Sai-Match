@@ -96,7 +96,7 @@
 
         #profileImageView {
             width: 100%;
-            max-height: 320px;
+            aspect-ratio: 1 / 1;
             object-fit: cover;
             border-radius: 10px;
         }
@@ -453,7 +453,9 @@
                 type="file"
                 id="profileImage"
                 accept="image/*">
-            <small>プロフィール写真は自動で縮小・圧縮され、最大1MBで保存されます（選択できる元画像は20MB以下）。</small>
+            <small>
+                プロフィール写真は中央を切り抜き、512×512pxに変換して保存されます。
+            </small>
 
             <input
                 type="text"

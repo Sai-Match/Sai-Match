@@ -290,6 +290,34 @@
             cursor: pointer;
         }
 
+        .groupStatusTag {
+            display: inline-block;
+            margin-left: 8px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: #e6f4ea;
+            color: #176b35;
+            font-size: 0.9em;
+        }
+
+        .groupTimeSlotGroup {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 8px;
+            margin: 12px 0;
+        }
+
+        .groupTimeSlotGroup label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .groupTimeSlotGroup input {
+            width: auto;
+            margin: 0;
+        }
+
         .chatMessages {
             max-height: 300px;
             overflow-y: auto;
@@ -764,15 +792,30 @@
         </div>
 
         <div id="groupSuggestionsPage" class="hidden">
-            <h2>グループ候補</h2>
+            <h2>グループ候補・参加中のグループ</h2>
             <div id="groupSuggestionsList"></div>
+            <p id="groupSchedulesLoadError" class="hidden" role="alert"></p>
             <section id="groupDetailPage" class="hidden">
                 <button id="backToGroupSuggestionsBtn" type="button">
-                    候補一覧に戻る
+                    グループ一覧に戻る
                 </button>
                 <h3 id="groupDetailHeading"></h3>
                 <p id="groupDetailTags" class="groupSuggestionTags"></p>
                 <ul id="groupDetailMembers" class="groupSuggestionMembers"></ul>
+                <p id="groupScheduleStatus" role="status"></p>
+                <button id="joinGroupBtn" type="button" class="hidden">
+                    このグループに参加
+                </button>
+                <section id="groupAvailabilitySection" class="hidden">
+                    <h4>参加可能な時間を選んでください</h4>
+                    <ul
+                        id="groupAvailabilityMembers"
+                        class="groupSuggestionMembers"></ul>
+                    <div id="groupAvailabilitySlots"></div>
+                    <button id="saveGroupAvailabilityBtn" type="button">
+                        日時を登録
+                    </button>
+                </section>
             </section>
         </div>
 

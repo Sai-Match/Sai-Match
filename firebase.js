@@ -65,18 +65,34 @@ let currentMatchPage = 0;
 let matchProfileLoadId = 0;
 let matchProfileBackPage = "matchListPage";
 let unsubscribeGroupSuggestions = null;
+let unsubscribeGroupSchedules = null;
 let groupSuggestionRefreshTimer = null;
 let groupSuggestionRenderId = 0;
+let groupSuggestionsListenerId = 0;
 let groupDetailLoadId = 0;
 let currentGroupDetails = null;
+let sharedGroupSuggestionsById = new Map();
+let groupSchedulesById = new Map();
 const MAX_MESSAGES_PER_USER = 5;
 const MATCHES_PER_PAGE = 5;
 const PROFILE_IMAGE_SIZE = 512;
 const MAX_PROFILE_IMAGE_SOURCE_SIZE = 20 * 1024 * 1024;
 const GROUP_SUGGESTION_MODES = ["relationship", "hobby", "exchange"];
 const MAX_GROUP_SUGGESTIONS = 12;
-const GROUP_SUGGESTION_REFRESH_UTC_HOUR = 19;
+const GROUP_SUGGESTION_REFRESH_UTC_HOUR = 15;
+const JAPAN_TIMEZONE_OFFSET_HOURS = 9;
 const GROUP_SUGGESTION_CACHE_PREFIX = "groupSuggestions:";
+const GROUP_WEEKDAYS = [
+    { key: "mon", label: "月曜日" },
+    { key: "tue", label: "火曜日" },
+    { key: "wed", label: "水曜日" },
+    { key: "thu", label: "木曜日" },
+    { key: "fri", label: "金曜日" }
+];
+const GROUP_TIME_SLOTS = GROUP_WEEKDAYS.flatMap(({ key }) => [
+    ...[1, 2, 3, 4, 5].map((period) => `${key}_${period}`),
+    `${key}_after`
+]);
 const GENDER_LABELS = {
     male: "男性",
     female: "女性",
@@ -229,6 +245,11 @@ function stopListeningToGroupSuggestions() {
         unsubscribeGroupSuggestions();
         unsubscribeGroupSuggestions = null;
     }
+    if (unsubscribeGroupSchedules) {
+        unsubscribeGroupSchedules();
+        unsubscribeGroupSchedules = null;
+    }
+    groupSuggestionsListenerId++;
     groupSuggestionRenderId++;
 }
 
@@ -268,7 +289,7 @@ function normalizeGrade(grade) {
 function getGroupSuggestionPeriodKey(date = new Date()) {
     const periodDate = new Date(date.getTime());
     periodDate.setUTCHours(
-        periodDate.getUTCHours() - GROUP_SUGGESTION_REFRESH_UTC_HOUR
+        periodDate.getUTCHours() + JAPAN_TIMEZONE_OFFSET_HOURS
     );
     const year = periodDate.getUTCFullYear();
     const month = String(periodDate.getUTCMonth() + 1).padStart(2, "0");
@@ -664,6 +685,93 @@ function isValidGroupSuggestion(group, userId) {
         group.members.includes(userId);
 }
 
+function getGroupSuggestionId(group) {
+    return encodeURIComponent(JSON.stringify([
+        group.type,
+        group.grade,
+        [...group.members].sort()
+    ]));
+}
+
+function getGroupScheduleId(group) {
+    return encodeURIComponent(JSON.stringify([...group.members].sort()));
+}
+
+function getGroupScheduleCollection() {
+    return collection(db, "groupSchedules");
+}
+
+function isValidGroupSchedule(schedule, userId) {
+    if (
+        !isValidGroupSuggestion(schedule, userId) ||
+        !Array.isArray(schedule.joinedMembers) ||
+        !Array.isArray(schedule.availability)
+    ) {
+        return false;
+    }
+
+    return schedule.joinedMembers.every((memberId) =>
+        schedule.members.includes(memberId)
+    ) &&
+        new Set(schedule.joinedMembers).size ===
+            schedule.joinedMembers.length &&
+        schedule.availability.every((entry) =>
+            entry &&
+            schedule.members.includes(entry.userId) &&
+            schedule.joinedMembers.includes(entry.userId) &&
+            Array.isArray(entry.slots) &&
+            new Set(entry.slots).size === entry.slots.length &&
+            entry.slots.every((slot) => GROUP_TIME_SLOTS.includes(slot))
+        ) &&
+        new Set(schedule.availability.map((entry) => entry.userId)).size ===
+            schedule.availability.length &&
+        schedule.meetingSlot === getCommonGroupTimeSlot(
+            schedule.members,
+            schedule.availability
+        );
+}
+
+function getCommonGroupTimeSlot(members, availability) {
+    const availabilityByMember = new Map(
+        availability.map((entry) => [entry.userId, new Set(entry.slots)])
+    );
+    if (!members.every((memberId) => availabilityByMember.has(memberId))) {
+        return null;
+    }
+    return GROUP_TIME_SLOTS.find((slot) =>
+        members.every((memberId) => availabilityByMember.get(memberId).has(slot))
+    ) || null;
+}
+
+function formatGroupTimeSlot(slot) {
+    if (!slot) {
+        return "";
+    }
+    const [dayKey, period] = slot.split("_");
+    const day = GROUP_WEEKDAYS.find(({ key }) => key === dayKey);
+    return period === "after"
+        ? `${day?.label || ""} 授業終了後`
+        : `${day?.label || ""}${period}限`;
+}
+
+function getGroupScheduleSummary(schedule) {
+    if (!schedule) {
+        return "";
+    }
+
+    const joinedCount = schedule.joinedMembers.length;
+    if (joinedCount < schedule.members.length) {
+        return `参加希望 ${joinedCount}/${schedule.members.length}`;
+    }
+    if (schedule.meetingSlot) {
+        return `決定済み：${formatGroupTimeSlot(schedule.meetingSlot)}`;
+    }
+    if (schedule.availability.length === schedule.members.length) {
+        return "全員登録済み・共通枠なし";
+    }
+    return `日時登録済み ${schedule.availability.length}/${schedule.members.length}`;
+}
+
 function getSharedGroupSuggestionsCollection(periodKey) {
     return collection(db, "groupSuggestions", periodKey, "groups");
 }
@@ -677,13 +785,8 @@ async function publishSharedGroupSuggestions(groups, userId) {
         }
 
         const members = [...group.members].sort();
-        const groupId = encodeURIComponent(JSON.stringify([
-            group.type,
-            group.grade,
-            members
-        ]));
         return setDoc(
-            doc(groupCollection, groupId),
+            doc(groupCollection, getGroupSuggestionId(group)),
             {
                 type: group.type,
                 grade: group.grade,
@@ -695,6 +798,10 @@ async function publishSharedGroupSuggestions(groups, userId) {
 
 function listenToSharedGroupSuggestions(userId) {
     stopListeningToGroupSuggestions();
+    const listenerId = groupSuggestionsListenerId;
+    const scheduleError = document.getElementById("groupSchedulesLoadError");
+    scheduleError.classList.add("hidden");
+    scheduleError.textContent = "";
     const groupCollection = getSharedGroupSuggestionsCollection(
         getGroupSuggestionPeriodKey()
     );
@@ -709,32 +816,27 @@ function listenToSharedGroupSuggestions(userId) {
         sharedGroupsQuery,
         (snapshot) => {
             if (
+                listenerId !== groupSuggestionsListenerId ||
                 auth.currentUser?.uid !== userId ||
                 document.getElementById("groupSuggestionsPage")
                     .classList.contains("hidden")
             ) {
                 return;
             }
-            const groups = snapshot.docs
-                .map((groupDoc) => ({
-                    id: groupDoc.id,
-                    ...groupDoc.data()
-                }))
-                .filter((group) => isValidGroupSuggestion(group, userId))
-                .sort((first, second) => first.id.localeCompare(second.id));
-            renderGroupSuggestions(groups, userId).catch((error) => {
-                if (
-                    auth.currentUser?.uid === userId &&
-                    !document.getElementById("groupSuggestionsPage")
-                        .classList.contains("hidden")
-                ) {
-                    list.textContent =
-                        `共有グループを表示できませんでした: ${error.message}`;
-                }
-            });
+            sharedGroupSuggestionsById = new Map(
+                snapshot.docs
+                    .map((groupDoc) => ({
+                        id: groupDoc.id,
+                        ...groupDoc.data()
+                    }))
+                    .filter((group) => isValidGroupSuggestion(group, userId))
+                    .map((group) => [group.id, group])
+            );
+            renderSharedGroupSuggestions(userId, list);
         },
         (error) => {
             if (
+                listenerId === groupSuggestionsListenerId &&
                 auth.currentUser?.uid === userId &&
                 !document.getElementById("groupSuggestionsPage")
                     .classList.contains("hidden")
@@ -744,6 +846,94 @@ function listenToSharedGroupSuggestions(userId) {
             }
         }
     );
+
+    const sharedSchedulesQuery = query(
+        getGroupScheduleCollection(),
+        where("members", "array-contains", userId)
+    );
+    unsubscribeGroupSchedules = onSnapshot(
+        sharedSchedulesQuery,
+        (snapshot) => {
+            if (
+                listenerId !== groupSuggestionsListenerId ||
+                auth.currentUser?.uid !== userId ||
+                document.getElementById("groupSuggestionsPage")
+                    .classList.contains("hidden")
+            ) {
+                return;
+            }
+            groupSchedulesById = new Map(
+                snapshot.docs
+                    .map((scheduleDoc) => ({
+                        id: scheduleDoc.id,
+                        ...scheduleDoc.data()
+                    }))
+                    .filter((schedule) =>
+                        isValidGroupSchedule(schedule, userId)
+                    )
+                    .map((schedule) => [schedule.id, schedule])
+            );
+            scheduleError.classList.add("hidden");
+            scheduleError.textContent = "";
+            renderSharedGroupSuggestions(userId, list);
+        },
+        (error) => {
+            if (
+                listenerId === groupSuggestionsListenerId &&
+                auth.currentUser?.uid === userId &&
+                !document.getElementById("groupSuggestionsPage")
+                    .classList.contains("hidden")
+            ) {
+                scheduleError.textContent =
+                    `参加中グループを読み込めませんでした: ${error.message}`;
+                scheduleError.classList.remove("hidden");
+            }
+        }
+    );
+}
+
+function renderSharedGroupSuggestions(userId, list) {
+    const groupsById = new Map();
+    [...sharedGroupSuggestionsById.values()]
+        .sort((first, second) => first.id.localeCompare(second.id))
+        .forEach((candidate) => {
+            const groupId = getGroupScheduleId(candidate);
+            if (!groupsById.has(groupId)) {
+                groupsById.set(groupId, { ...candidate, id: groupId });
+            }
+        });
+    groupSchedulesById.forEach((schedule, groupId) => {
+        groupsById.set(groupId, {
+            ...(groupsById.get(groupId) || schedule),
+            id: groupId,
+            schedule
+        });
+    });
+    const groups = [...groupsById.values()]
+        .map((group) => ({
+            ...group,
+            schedule: groupSchedulesById.get(group.id) || null
+        }))
+        .sort((first, second) => first.id.localeCompare(second.id));
+
+    renderGroupSuggestions(groups, userId).catch((error) => {
+        if (
+            auth.currentUser?.uid === userId &&
+            !document.getElementById("groupSuggestionsPage")
+                .classList.contains("hidden")
+        ) {
+            list.textContent =
+                `共有グループを表示できませんでした: ${error.message}`;
+        }
+    });
+    if (
+        currentGroupDetails &&
+        currentGroupDetails.members.includes(userId)
+    ) {
+        currentGroupDetails.schedule =
+            groupSchedulesById.get(currentGroupDetails.id) || null;
+        renderGroupScheduleControls(currentGroupDetails, userId);
+    }
 }
 
 async function renderGroupSuggestions(groups, userId) {
@@ -774,9 +964,12 @@ async function renderGroupSuggestions(groups, userId) {
         card.className = "groupSuggestion";
         card.tabIndex = 0;
         card.setAttribute("role", "button");
+        const title = group.schedule
+            ? `参加中グループ${index + 1}`
+            : `グループ候補${index + 1}`;
         card.setAttribute(
             "aria-label",
-            `グループ候補${index + 1}の詳細を表示`
+            `${title}の詳細を表示`
         );
         const openDetails = () => {
             showGroupDetails(group, index, userId);
@@ -789,7 +982,7 @@ async function renderGroupSuggestions(groups, userId) {
             }
         });
         const heading = document.createElement("h3");
-        heading.textContent = `グループ候補${index + 1}`;
+        heading.textContent = title;
         const tags = document.createElement("p");
         tags.className = "groupSuggestionTags";
         const typeTag = document.createElement("span");
@@ -803,6 +996,12 @@ async function renderGroupSuggestions(groups, userId) {
             ? "🎓 同学年"
             : "🎓 学年混合";
         tags.append(typeTag, gradeTag);
+        if (group.schedule) {
+            const scheduleTag = document.createElement("span");
+            scheduleTag.textContent =
+                getGroupScheduleSummary(group.schedule);
+            tags.append(scheduleTag);
+        }
         const members = document.createElement("ul");
         members.className = "groupSuggestionMembers";
         group.members.forEach((userId) => {
@@ -816,6 +1015,134 @@ async function renderGroupSuggestions(groups, userId) {
     });
 }
 
+function renderGroupScheduleControls(group, userId) {
+    const schedule = groupSchedulesById.get(group.id) || null;
+    const joinButton = document.getElementById("joinGroupBtn");
+    const status = document.getElementById("groupScheduleStatus");
+    const availabilitySection = document.getElementById(
+        "groupAvailabilitySection"
+    );
+    const availabilityMembers = document.getElementById(
+        "groupAvailabilityMembers"
+    );
+    const availabilitySlots = document.getElementById(
+        "groupAvailabilitySlots"
+    );
+    const saveButton = document.getElementById("saveGroupAvailabilityBtn");
+
+    group.schedule = schedule;
+    joinButton.disabled = false;
+    saveButton.disabled = false;
+    saveButton.textContent = "日時を登録";
+    availabilitySection.classList.add("hidden");
+    availabilityMembers.replaceChildren();
+
+    if (!schedule) {
+        availabilitySlots.dataset.groupId = "";
+        availabilitySlots
+            .querySelectorAll('input[name="groupAvailabilitySlot"]')
+            .forEach((input) => {
+                input.disabled = false;
+            });
+        joinButton.classList.remove("hidden");
+        joinButton.textContent = "このグループに参加";
+        status.textContent = "全員の参加希望がそろうと日時を登録できます。";
+        return;
+    }
+
+    const joinedMembers = new Set(schedule.joinedMembers);
+    const hasJoined = joinedMembers.has(userId);
+    const allMembersJoined = schedule.members.every((memberId) =>
+        joinedMembers.has(memberId)
+    );
+    joinButton.classList.toggle("hidden", allMembersJoined);
+    joinButton.textContent = hasJoined
+        ? "参加希望を取り消す"
+        : "このグループに参加";
+    status.textContent = allMembersJoined
+        ? "全員の参加希望がそろいました。参加可能な時間を選んで登録してください。"
+        : `参加希望 ${joinedMembers.size}/${schedule.members.length}人`;
+
+    if (!allMembersJoined) {
+        availabilitySlots.dataset.groupId = "";
+        return;
+    }
+
+    availabilitySection.classList.remove("hidden");
+    const availabilityByMember = new Map(
+        schedule.availability.map((entry) => [entry.userId, entry])
+    );
+    const profilesById = group.profilesById || new Map();
+    schedule.members.forEach((memberId) => {
+        const item = document.createElement("li");
+        const nickname = profilesById.get(memberId)?.nickname || "名前未設定";
+        const isRegistered = availabilityByMember.has(memberId);
+        const name = document.createElement("span");
+        name.textContent = nickname;
+        const statusTag = document.createElement("span");
+        statusTag.className = "groupStatusTag";
+        statusTag.textContent = isRegistered ? "日時登録済み" : "未登録";
+        item.append(name, statusTag);
+        availabilityMembers.append(item);
+    });
+
+    if (schedule.meetingSlot) {
+        status.textContent =
+            `決定済み：${formatGroupTimeSlot(schedule.meetingSlot)}`;
+        saveButton.disabled = true;
+        saveButton.textContent = "日時決定済み";
+    } else if (schedule.availability.length === schedule.members.length) {
+        status.textContent =
+            "全員が日時登録済みですが、共通の時間がありません。参加可能な時間を変更してください。";
+    } else {
+        status.textContent =
+            `日時登録済み ${schedule.availability.length}/${schedule.members.length}人`;
+    }
+
+    availabilitySlots
+        .querySelectorAll('input[name="groupAvailabilitySlot"]')
+        .forEach((input) => {
+            input.disabled = Boolean(schedule.meetingSlot);
+        });
+    if (availabilitySlots.dataset.groupId === group.id) {
+        return;
+    }
+    availabilitySlots.dataset.groupId = group.id;
+    availabilitySlots.replaceChildren();
+    const savedSlots = availabilityByMember.get(userId)?.slots || [];
+    GROUP_WEEKDAYS.forEach(({ key, label }) => {
+        const fieldset = document.createElement("fieldset");
+        fieldset.className = "groupTimeSlotGroup";
+        const legend = document.createElement("legend");
+        legend.textContent = label;
+        fieldset.append(legend);
+
+        const daySlots = GROUP_TIME_SLOTS.filter((slot) =>
+            slot.startsWith(`${key}_`)
+        );
+        daySlots.forEach((slot, index) => {
+            const inputId = `groupAvailabilitySlot${GROUP_TIME_SLOTS.indexOf(slot)}`;
+            const labelElement = document.createElement("label");
+            const input = document.createElement("input");
+            input.type = "checkbox";
+            input.name = "groupAvailabilitySlot";
+            input.value = slot;
+            input.id = inputId;
+            input.checked = savedSlots.includes(slot);
+            input.disabled = Boolean(schedule.meetingSlot);
+            labelElement.htmlFor = inputId;
+            labelElement.append(input);
+            labelElement.append(
+                document.createTextNode(index < 5
+                    ? `${index + 1}限`
+                    : "授業終了後")
+            );
+            fieldset.append(labelElement);
+        });
+        availabilitySlots.append(fieldset);
+    });
+}
+
 async function showGroupDetails(group, index, userId) {
     if (
         auth.currentUser?.uid !== userId ||
@@ -826,11 +1153,17 @@ async function showGroupDetails(group, index, userId) {
     }
 
     const loadId = ++groupDetailLoadId;
-    currentGroupDetails = group;
+    const groupId = group.id || getGroupScheduleId(group);
+    currentGroupDetails = {
+        ...group,
+        id: groupId,
+        schedule: groupSchedulesById.get(groupId) || null
+    };
     document.getElementById("groupSuggestionsList").classList.add("hidden");
     document.getElementById("groupDetailPage").classList.remove("hidden");
     document.getElementById("groupDetailHeading").textContent =
-        `グループ候補${index + 1}の詳細`;
+        `${currentGroupDetails.schedule ? "参加中グループ" : "グループ候補"}${index + 1}の詳細`;
+    document.getElementById("groupAvailabilitySlots").dataset.groupId = "";
     const typeLabel = group.type === "mixed"
         ? "👥 男女混合"
         : group.type === "male"
@@ -859,6 +1192,9 @@ async function showGroupDetails(group, index, userId) {
             return;
         }
 
+        currentGroupDetails.profilesById = new Map(
+            profiles.filter(Boolean).map((profile) => [profile.id, profile])
+        );
         members.replaceChildren();
         profiles.forEach((profile) => {
             const item = document.createElement("li");
@@ -876,11 +1212,179 @@ async function showGroupDetails(group, index, userId) {
             }
             members.append(item);
         });
+        renderGroupScheduleControls(currentGroupDetails, userId);
     } catch (error) {
         if (loadId === groupDetailLoadId) {
             members.textContent = `メンバーを読み込めませんでした: ${error.message}`;
         }
     }
+}
+
+function areSameGroupMembers(first, second) {
+    return Array.isArray(first) &&
+        Array.isArray(second) &&
+        first.length === second.length &&
+        new Set(first).size === first.length &&
+        new Set(second).size === second.length &&
+        first.every((memberId) => second.includes(memberId));
+}
+
+async function updateGroupParticipation(group, userId, shouldJoin) {
+    if (!isValidGroupSuggestion(group, userId)) {
+        throw new Error("グループ情報を確認できません");
+    }
+
+    const groupId = group.id || getGroupScheduleId(group);
+    const scheduleRef = doc(getGroupScheduleCollection(), groupId);
+    return runTransaction(db, async (transaction) => {
+        const snapshot = await transaction.get(scheduleRef);
+        const existing = snapshot.exists() ? snapshot.data() : null;
+        if (
+            existing &&
+            (
+                !areSameGroupMembers(existing.members, group.members) ||
+                !isValidGroupSchedule(existing, userId)
+            )
+        ) {
+            throw new Error("グループメンバーが一致しません");
+        }
+        if (!existing && !shouldJoin) {
+            throw new Error("参加希望の登録が見つかりません");
+        }
+
+        const joinedMembers = new Set(
+            Array.isArray(existing?.joinedMembers)
+                ? existing.joinedMembers
+                : []
+        );
+        const allMembersJoined = group.members.every((memberId) =>
+            joinedMembers.has(memberId)
+        );
+        if (!shouldJoin && allMembersJoined) {
+            throw new Error("日程調整開始後は参加希望を取り消せません");
+        }
+        if (shouldJoin) {
+            joinedMembers.add(userId);
+        } else {
+            joinedMembers.delete(userId);
+        }
+
+        if (joinedMembers.size === 0) {
+            transaction.delete(scheduleRef);
+            return null;
+        }
+
+        const availability = Array.isArray(existing?.availability)
+            ? existing.availability.filter((entry) =>
+                entry &&
+                entry.userId !== userId &&
+                group.members.includes(entry.userId)
+            )
+            : [];
+        const allMembersHaveJoined = group.members.every((memberId) =>
+            joinedMembers.has(memberId)
+        );
+        const meetingSlot = allMembersHaveJoined
+            ? getCommonGroupTimeSlot(group.members, availability)
+            : null;
+        const schedule = {
+            id: groupId,
+            type: group.type,
+            grade: group.grade,
+            members: [...group.members].sort(),
+            joinedMembers: [...joinedMembers],
+            availability,
+            meetingSlot
+        };
+        transaction.set(scheduleRef, {
+            type: schedule.type,
+            grade: schedule.grade,
+            members: schedule.members,
+            joinedMembers: schedule.joinedMembers,
+            availability: schedule.availability,
+            meetingSlot: schedule.meetingSlot
+        });
+        return schedule;
+    });
+}
+
+async function saveGroupAvailability(group, userId, slots) {
+    if (
+        !isValidGroupSuggestion(group, userId) ||
+        !Array.isArray(slots) ||
+        slots.some((slot) => !GROUP_TIME_SLOTS.includes(slot))
+    ) {
+        throw new Error("日時登録の内容を確認してください");
+    }
+
+    const groupId = group.id || getGroupScheduleId(group);
+    const scheduleRef = doc(getGroupScheduleCollection(), groupId);
+    return runTransaction(db, async (transaction) => {
+        const snapshot = await transaction.get(scheduleRef);
+        if (!snapshot.exists()) {
+            throw new Error("参加希望の登録が見つかりません");
+        }
+        const existing = snapshot.data();
+        if (
+            !areSameGroupMembers(existing.members, group.members) ||
+            !isValidGroupSchedule(existing, userId) ||
+            existing.meetingSlot ||
+            !Array.isArray(existing.joinedMembers) ||
+            !group.members.every((memberId) =>
+                existing.joinedMembers.includes(memberId)
+            )
+        ) {
+            throw new Error("全員の参加希望がそろっていません");
+        }
+
+        const availabilityByMember = new Map(
+            (Array.isArray(existing.availability)
+                ? existing.availability
+                : [])
+                .filter((entry) =>
+                    entry &&
+                    group.members.includes(entry.userId) &&
+                    Array.isArray(entry.slots)
+                )
+                .map((entry) => [
+                    entry.userId,
+                    {
+                        userId: entry.userId,
+                        slots: [...new Set(entry.slots.filter((slot) =>
+                            GROUP_TIME_SLOTS.includes(slot)
+                        ))]
+                    }
+                ])
+        );
+        availabilityByMember.set(userId, {
+            userId,
+            slots: [...new Set(slots)]
+        });
+        const availability = [...availabilityByMember.values()];
+        const meetingSlot = group.members.every((memberId) =>
+            availabilityByMember.has(memberId)
+        )
+            ? getCommonGroupTimeSlot(group.members, availability)
+            : null;
+        const schedule = {
+            id: groupId,
+            type: group.type,
+            grade: group.grade,
+            members: [...group.members].sort(),
+            joinedMembers: [...existing.joinedMembers],
+            availability,
+            meetingSlot
+        };
+        transaction.set(scheduleRef, {
+            type: schedule.type,
+            grade: schedule.grade,
+            members: schedule.members,
+            joinedMembers: schedule.joinedMembers,
+            availability: schedule.availability,
+            meetingSlot: schedule.meetingSlot
+        });
+        return schedule;
+    });
 }
 
 async function refreshGroupSuggestions(userId) {
@@ -924,6 +1428,14 @@ function scheduleGroupSuggestionRefresh(userId) {
                     `候補の更新に失敗しました: ${error.message}`;
             }
         } finally {
+            if (
+                auth.currentUser?.uid === userId &&
+                !document.getElementById("groupSuggestionsPage")
+                    .classList.contains("hidden")
+            ) {
+                sharedGroupSuggestionsById = new Map();
+                listenToSharedGroupSuggestions(userId);
+            }
             scheduleGroupSuggestionRefresh(auth.currentUser?.uid);
         }
     }, nextRefresh.getTime() - Date.now());
@@ -939,6 +1451,8 @@ async function showGroupSuggestions() {
 
     groupDetailLoadId++;
     currentGroupDetails = null;
+    sharedGroupSuggestionsById = new Map();
+    groupSchedulesById = new Map();
     document.getElementById("groupSuggestionsList").classList.remove("hidden");
     document.getElementById("groupDetailPage").classList.add("hidden");
     stopListeningToMessages();
@@ -979,6 +1493,79 @@ document
         const currentUser = auth.currentUser;
         if (currentUser) {
             listenToSharedGroupSuggestions(currentUser.uid);
+        }
+    });
+
+document
+    .getElementById("joinGroupBtn")
+    .addEventListener("click", async () => {
+        const currentUser = auth.currentUser;
+        const group = currentGroupDetails;
+        if (!currentUser || !group) {
+            return;
+        }
+
+        const schedule = groupSchedulesById.get(group.id);
+        const shouldJoin = !schedule?.joinedMembers.includes(currentUser.uid);
+        const button = document.getElementById("joinGroupBtn");
+        button.disabled = true;
+        try {
+            const updatedSchedule = await updateGroupParticipation(
+                group,
+                currentUser.uid,
+                shouldJoin
+            );
+            if (updatedSchedule) {
+                groupSchedulesById.set(group.id, updatedSchedule);
+            } else {
+                groupSchedulesById.delete(group.id);
+            }
+            renderSharedGroupSuggestions(
+                currentUser.uid,
+                document.getElementById("groupSuggestionsList")
+            );
+        } catch (error) {
+            alert(error.message);
+        } finally {
+            button.disabled = false;
+        }
+    });
+
+document
+    .getElementById("saveGroupAvailabilityBtn")
+    .addEventListener("click", async () => {
+        const currentUser = auth.currentUser;
+        const group = currentGroupDetails;
+        if (!currentUser || !group) {
+            return;
+        }
+
+        const slots = [
+            ...document.querySelectorAll(
+                'input[name="groupAvailabilitySlot"]:checked'
+            )
+        ].map((input) => input.value);
+        const button = document.getElementById("saveGroupAvailabilityBtn");
+        button.disabled = true;
+        button.textContent = "登録中...";
+        try {
+            const schedule = await saveGroupAvailability(
+                group,
+                currentUser.uid,
+                slots
+            );
+            groupSchedulesById.set(group.id, schedule);
+            renderSharedGroupSuggestions(
+                currentUser.uid,
+                document.getElementById("groupSuggestionsList")
+            );
+        } catch (error) {
+            alert(error.message);
+        } finally {
+            button.disabled = false;
+            if (currentGroupDetails?.id === group.id) {
+                renderGroupScheduleControls(currentGroupDetails, currentUser.uid);
+            }
         }
     });
 

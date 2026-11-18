@@ -258,6 +258,12 @@
             padding: 16px;
             border: 1px solid #ccc;
             border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .groupSuggestion:focus-visible {
+            outline: 2px solid #00a65a;
+            outline-offset: 2px;
         }
 
         .groupSuggestion h3 {
@@ -273,6 +279,15 @@
         .groupSuggestionMembers {
             margin-bottom: 0;
             padding-left: 24px;
+        }
+
+        .groupDetailMemberButton {
+            padding: 4px 0;
+            border: 0;
+            background: none;
+            color: #0066cc;
+            text-decoration: underline;
+            cursor: pointer;
         }
 
         .chatMessages {
@@ -751,6 +766,14 @@
         <div id="groupSuggestionsPage" class="hidden">
             <h2>グループ候補</h2>
             <div id="groupSuggestionsList"></div>
+            <section id="groupDetailPage" class="hidden">
+                <button id="backToGroupSuggestionsBtn" type="button">
+                    候補一覧に戻る
+                </button>
+                <h3 id="groupDetailHeading"></h3>
+                <p id="groupDetailTags" class="groupSuggestionTags"></p>
+                <ul id="groupDetailMembers" class="groupSuggestionMembers"></ul>
+            </section>
         </div>
 
         <div id="matchProfilePage" class="hidden">

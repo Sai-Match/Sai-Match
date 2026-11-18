@@ -63,15 +63,19 @@ let chatBlocked = false;
 let matchesWithProfiles = [];
 let currentMatchPage = 0;
 let matchProfileLoadId = 0;
+let matchProfileBackPage = "matchListPage";
+let unsubscribeGroupSuggestions = null;
 let groupSuggestionRefreshTimer = null;
 let groupSuggestionRenderId = 0;
+let groupDetailLoadId = 0;
+let currentGroupDetails = null;
 const MAX_MESSAGES_PER_USER = 5;
 const MATCHES_PER_PAGE = 5;
 const PROFILE_IMAGE_SIZE = 512;
 const MAX_PROFILE_IMAGE_SOURCE_SIZE = 20 * 1024 * 1024;
 const GROUP_SUGGESTION_MODES = ["relationship", "hobby", "exchange"];
 const MAX_GROUP_SUGGESTIONS = 12;
-const GROUP_SUGGESTION_REFRESH_HOUR = 4;
+const GROUP_SUGGESTION_REFRESH_UTC_HOUR = 19;
 const GROUP_SUGGESTION_CACHE_PREFIX = "groupSuggestions:";
 const GENDER_LABELS = {
     male: "男性",
@@ -220,6 +224,14 @@ function stopListeningToMessages() {
     activeMatch = null;
 }
 
+function stopListeningToGroupSuggestions() {
+    if (unsubscribeGroupSuggestions) {
+        unsubscribeGroupSuggestions();
+        unsubscribeGroupSuggestions = null;
+    }
+    groupSuggestionRenderId++;
+}
+
 function getBlockDocumentId(fromUserId, toUserId) {
     return `direct_${encodeURIComponent(JSON.stringify([fromUserId, toUserId]))}`;
 }
@@ -255,12 +267,12 @@ function normalizeGrade(grade) {
 
 function getGroupSuggestionPeriodKey(date = new Date()) {
     const periodDate = new Date(date.getTime());
-    periodDate.setHours(
-        periodDate.getHours() - GROUP_SUGGESTION_REFRESH_HOUR
+    periodDate.setUTCHours(
+        periodDate.getUTCHours() - GROUP_SUGGESTION_REFRESH_UTC_HOUR
     );
-    const year = periodDate.getFullYear();
-    const month = String(periodDate.getMonth() + 1).padStart(2, "0");
-    const day = String(periodDate.getDate()).padStart(2, "0");
+    const year = periodDate.getUTCFullYear();
+    const month = String(periodDate.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(periodDate.getUTCDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
 }
 
@@ -622,7 +634,10 @@ function readGroupSuggestionsCache(userId) {
         if (
             parsed.periodKey === getGroupSuggestionPeriodKey() &&
             Array.isArray(parsed.groups) &&
-            parsed.groups.length <= MAX_GROUP_SUGGESTIONS
+            parsed.groups.length <= MAX_GROUP_SUGGESTIONS &&
+            parsed.groups.every((group) =>
+                isValidGroupSuggestion(group, userId)
+            )
         ) {
             return parsed.groups;
         }
@@ -630,6 +645,105 @@ function readGroupSuggestionsCache(userId) {
         localStorage.removeItem(getGroupSuggestionsCacheKey(userId));
     }
     return null;
+}
+
+function isValidGroupSuggestion(group, userId) {
+    if (
+        !group ||
+        !["mixed", "male", "female"].includes(group.type) ||
+        !["same", "mixed"].includes(group.grade) ||
+        !Array.isArray(group.members)
+    ) {
+        return false;
+    }
+
+    const expectedMemberCount = group.type === "mixed" ? 6 : 4;
+    return group.members.length === expectedMemberCount &&
+        group.members.every((memberId) => typeof memberId === "string") &&
+        new Set(group.members).size === group.members.length &&
+        group.members.includes(userId);
+}
+
+function getSharedGroupSuggestionsCollection(periodKey) {
+    return collection(db, "groupSuggestions", periodKey, "groups");
+}
+
+async function publishSharedGroupSuggestions(groups, userId) {
+    const periodKey = getGroupSuggestionPeriodKey();
+    const groupCollection = getSharedGroupSuggestionsCollection(periodKey);
+    await Promise.all(groups.map((group) => {
+        if (!isValidGroupSuggestion(group, userId)) {
+            throw new Error("共有するグループ候補の内容が不正です");
+        }
+
+        const members = [...group.members].sort();
+        const groupId = encodeURIComponent(JSON.stringify([
+            group.type,
+            group.grade,
+            members
+        ]));
+        return setDoc(
+            doc(groupCollection, groupId),
+            {
+                type: group.type,
+                grade: group.grade,
+                members
+            }
+        );
+    }));
+}
+
+function listenToSharedGroupSuggestions(userId) {
+    stopListeningToGroupSuggestions();
+    const groupCollection = getSharedGroupSuggestionsCollection(
+        getGroupSuggestionPeriodKey()
+    );
+    const sharedGroupsQuery = query(
+        groupCollection,
+        where("members", "array-contains", userId)
+    );
+    const list = document.getElementById("groupSuggestionsList");
+    list.textContent = "共有グループを読み込み中...";
+
+    unsubscribeGroupSuggestions = onSnapshot(
+        sharedGroupsQuery,
+        (snapshot) => {
+            if (
+                auth.currentUser?.uid !== userId ||
+                document.getElementById("groupSuggestionsPage")
+                    .classList.contains("hidden")
+            ) {
+                return;
+            }
+            const groups = snapshot.docs
+                .map((groupDoc) => ({
+                    id: groupDoc.id,
+                    ...groupDoc.data()
+                }))
+                .filter((group) => isValidGroupSuggestion(group, userId))
+                .sort((first, second) => first.id.localeCompare(second.id));
+            renderGroupSuggestions(groups, userId).catch((error) => {
+                if (
+                    auth.currentUser?.uid === userId &&
+                    !document.getElementById("groupSuggestionsPage")
+                        .classList.contains("hidden")
+                ) {
+                    list.textContent =
+                        `共有グループを表示できませんでした: ${error.message}`;
+                }
+            });
+        },
+        (error) => {
+            if (
+                auth.currentUser?.uid === userId &&
+                !document.getElementById("groupSuggestionsPage")
+                    .classList.contains("hidden")
+            ) {
+                list.textContent =
+                    `共有グループを読み込めませんでした: ${error.message}`;
+            }
+        }
+    );
 }
 
 async function renderGroupSuggestions(groups, userId) {
@@ -658,6 +772,22 @@ async function renderGroupSuggestions(groups, userId) {
     groups.forEach((group, index) => {
         const card = document.createElement("section");
         card.className = "groupSuggestion";
+        card.tabIndex = 0;
+        card.setAttribute("role", "button");
+        card.setAttribute(
+            "aria-label",
+            `グループ候補${index + 1}の詳細を表示`
+        );
+        const openDetails = () => {
+            showGroupDetails(group, index, userId);
+        };
+        card.addEventListener("click", openDetails);
+        card.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openDetails();
+            }
+        });
         const heading = document.createElement("h3");
         heading.textContent = `グループ候補${index + 1}`;
         const tags = document.createElement("p");
@@ -686,6 +816,73 @@ async function renderGroupSuggestions(groups, userId) {
     });
 }
 
+async function showGroupDetails(group, index, userId) {
+    if (
+        auth.currentUser?.uid !== userId ||
+        !Array.isArray(group.members) ||
+        !group.members.includes(userId)
+    ) {
+        return;
+    }
+
+    const loadId = ++groupDetailLoadId;
+    currentGroupDetails = group;
+    document.getElementById("groupSuggestionsList").classList.add("hidden");
+    document.getElementById("groupDetailPage").classList.remove("hidden");
+    document.getElementById("groupDetailHeading").textContent =
+        `グループ候補${index + 1}の詳細`;
+    const typeLabel = group.type === "mixed"
+        ? "👥 男女混合"
+        : group.type === "male"
+            ? "👨 男性限定"
+            : "👩 女性限定";
+    const gradeLabel = group.grade === "same"
+        ? "🎓 同学年"
+        : "🎓 学年混合";
+    const tags = document.getElementById("groupDetailTags");
+    tags.replaceChildren();
+    [typeLabel, gradeLabel].forEach((label) => {
+        const tag = document.createElement("span");
+        tag.textContent = label;
+        tags.append(tag);
+    });
+
+    const members = document.getElementById("groupDetailMembers");
+    members.textContent = "メンバーを読み込み中...";
+    try {
+        const profiles = await getUserProfiles(group.members);
+        if (
+            loadId !== groupDetailLoadId ||
+            auth.currentUser?.uid !== userId ||
+            document.getElementById("groupDetailPage").classList.contains("hidden")
+        ) {
+            return;
+        }
+
+        members.replaceChildren();
+        profiles.forEach((profile) => {
+            const item = document.createElement("li");
+            if (!profile) {
+                item.textContent = "プロフィールを取得できません";
+            } else {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "groupDetailMemberButton";
+                button.textContent = profile.nickname || "名前未設定";
+                button.addEventListener("click", () => {
+                    showGroupMemberProfile(profile.id);
+                });
+                item.append(button);
+            }
+            members.append(item);
+        });
+    } catch (error) {
+        if (loadId === groupDetailLoadId) {
+            members.textContent = `メンバーを読み込めませんでした: ${error.message}`;
+        }
+    }
+}
+
 async function refreshGroupSuggestions(userId) {
     const groups = await generateGroups();
     if (auth.currentUser?.uid !== userId) {
@@ -695,12 +892,7 @@ async function refreshGroupSuggestions(userId) {
         periodKey: getGroupSuggestionPeriodKey(),
         groups
     }));
-    if (
-        !document.getElementById("groupSuggestionsPage")
-            .classList.contains("hidden")
-    ) {
-        await renderGroupSuggestions(groups, userId);
-    }
+    await publishSharedGroupSuggestions(groups, userId);
 }
 
 function scheduleGroupSuggestionRefresh(userId) {
@@ -713,9 +905,9 @@ function scheduleGroupSuggestionRefresh(userId) {
     }
 
     const nextRefresh = new Date();
-    nextRefresh.setHours(GROUP_SUGGESTION_REFRESH_HOUR, 0, 0, 0);
+    nextRefresh.setUTCHours(GROUP_SUGGESTION_REFRESH_UTC_HOUR, 0, 0, 0);
     if (nextRefresh.getTime() <= Date.now()) {
-        nextRefresh.setDate(nextRefresh.getDate() + 1);
+        nextRefresh.setUTCDate(nextRefresh.getUTCDate() + 1);
     }
     groupSuggestionRefreshTimer = setTimeout(async () => {
         try {
@@ -745,7 +937,10 @@ async function showGroupSuggestions() {
         return;
     }
 
-    groupSuggestionRenderId++;
+    groupDetailLoadId++;
+    currentGroupDetails = null;
+    document.getElementById("groupSuggestionsList").classList.remove("hidden");
+    document.getElementById("groupDetailPage").classList.add("hidden");
     stopListeningToMessages();
     document.getElementById("userListPage").classList.add("hidden");
     document.getElementById("profileForm").classList.add("hidden");
@@ -755,12 +950,16 @@ async function showGroupSuggestions() {
     hideModePages();
     document.getElementById("groupSuggestionsPage").classList.remove("hidden");
     document.getElementById("mainNavigation").classList.remove("hidden");
+    listenToSharedGroupSuggestions(currentUser.uid);
     scheduleGroupSuggestionRefresh(currentUser.uid);
 
     try {
         const cachedGroups = readGroupSuggestionsCache(currentUser.uid);
         if (cachedGroups) {
-            await renderGroupSuggestions(cachedGroups, currentUser.uid);
+            await publishSharedGroupSuggestions(
+                cachedGroups,
+                currentUser.uid
+            );
             return;
         }
         list.textContent = "グループ候補を作成しています...";
@@ -769,6 +968,19 @@ async function showGroupSuggestions() {
         list.textContent = `候補を読み込めませんでした: ${error.message}`;
     }
 }
+
+document
+    .getElementById("backToGroupSuggestionsBtn")
+    .addEventListener("click", () => {
+        groupDetailLoadId++;
+        currentGroupDetails = null;
+        document.getElementById("groupDetailPage").classList.add("hidden");
+        document.getElementById("groupSuggestionsList").classList.remove("hidden");
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+            listenToSharedGroupSuggestions(currentUser.uid);
+        }
+    });
 
 function compressProfileImage(file) {
     if (!file.type.startsWith("image/")) {
@@ -1076,6 +1288,7 @@ document
 
 function showLogin() {
     stopListeningToMessages();
+    stopListeningToGroupSuggestions();
     document.getElementById("currentUser").textContent = "";
     document.getElementById("loginForm").classList.remove("hidden");
     document.getElementById("registerForm").classList.add("hidden");
@@ -1091,6 +1304,7 @@ function showLogin() {
 
 async function showProfile(user, profileData = null, showNavigation = false) {
     stopListeningToMessages();
+    stopListeningToGroupSuggestions();
     if (profileData === null) {
         const profileSnapshot = await getDoc(doc(db, "users", user.uid));
         profileData = profileSnapshot.exists() ? profileSnapshot.data() : {};
@@ -1139,6 +1353,7 @@ async function showUserList(user, mode = currentMode) {
     }
 
     stopListeningToMessages();
+    stopListeningToGroupSuggestions();
     document.getElementById("currentUser").textContent =
         `ログイン中: ${user.email || ""}`;
     document.getElementById("loginForm").classList.add("hidden");
@@ -1156,6 +1371,7 @@ async function showUserList(user, mode = currentMode) {
 
 function showModeProfileForm(mode, profileData = {}, isEditing = false) {
     stopListeningToMessages();
+    stopListeningToGroupSuggestions();
     hideModePages();
     document.getElementById("loginForm").classList.add("hidden");
     document.getElementById("registerForm").classList.add("hidden");
@@ -1221,6 +1437,7 @@ async function editCurrentModeProfile() {
 
 function showModeSelect() {
     stopListeningToMessages();
+    stopListeningToGroupSuggestions();
     currentMode = null;
     document.getElementById("loginForm").classList.add("hidden");
     document.getElementById("registerForm").classList.add("hidden");
@@ -1607,6 +1824,7 @@ async function showMatchList() {
     }
 
     stopListeningToMessages();
+    stopListeningToGroupSuggestions();
     document.getElementById("userListPage").classList.add("hidden");
     document.getElementById("profileForm").classList.add("hidden");
     hideModePages();
@@ -1962,33 +2180,7 @@ function renderMatchedModeProfiles(modeProfiles) {
     });
 }
 
-async function showMatchProfile(match, partnerId, profile) {
-    const currentUser = auth.currentUser;
-    const isMatchParticipant = currentUser && match && (
-        (match.user1 === currentUser.uid && match.user2 === partnerId) ||
-        (match.user2 === currentUser.uid && match.user1 === partnerId)
-    );
-    if (!isMatchParticipant) {
-        alert("マッチ情報を確認できません");
-        return;
-    }
-
-    const loadId = ++matchProfileLoadId;
-    const matchedModes = [...new Set([
-        ...(Array.isArray(match.modes) ? match.modes : []),
-        ...(typeof match.mode === "string" ? [match.mode] : [])
-    ])].filter((mode) =>
-        typeof mode === "string" &&
-        Object.prototype.hasOwnProperty.call(MODE_CONFIG, mode)
-    );
-
-    stopListeningToMessages();
-    hideModePages();
-    document.getElementById("matchListPage").classList.add("hidden");
-    document.getElementById("groupSuggestionsPage").classList.add("hidden");
-    document.getElementById("chatPage").classList.add("hidden");
-    document.getElementById("matchProfilePage").classList.remove("hidden");
-
+function renderProfileDetails(profile) {
     const image = document.getElementById("matchProfileImage");
     if (profile.profileImageUrl) {
         image.src = profile.profileImageUrl;
@@ -2012,6 +2204,92 @@ async function showMatchProfile(match, partnerId, profile) {
         normalizeGrade(profile.grade);
     document.getElementById("matchProfileBio").textContent =
         profile.bio || "";
+    document.getElementById("matchModeProfiles").textContent =
+        "モードプロフィール情報はありません";
+}
+
+async function showGroupMemberProfile(userId) {
+    const currentUser = auth.currentUser;
+    if (
+        !currentUser ||
+        !currentGroupDetails?.members.includes(userId)
+    ) {
+        return;
+    }
+
+    const loadId = ++matchProfileLoadId;
+    stopListeningToGroupSuggestions();
+    matchProfileBackPage = "groupSuggestionsPage";
+    document.getElementById("groupSuggestionsPage").classList.add("hidden");
+    document.getElementById("matchListPage").classList.add("hidden");
+    document.getElementById("chatPage").classList.add("hidden");
+    document.getElementById("matchProfilePage").classList.remove("hidden");
+    renderProfileDetails({});
+    document.getElementById("matchProfileNickname").textContent =
+        "プロフィールを読み込み中...";
+
+    try {
+        const [profileSnapshot, isBlocked] = await Promise.all([
+            getDoc(doc(db, "users", userId)),
+            isBlockedBetweenUsers(currentUser.uid, userId)
+        ]);
+        if (
+            loadId !== matchProfileLoadId ||
+            auth.currentUser?.uid !== currentUser.uid ||
+            document.getElementById("matchProfilePage").classList.contains("hidden")
+        ) {
+            return;
+        }
+        if (isBlocked || !currentGroupDetails?.members.includes(userId)) {
+            document.getElementById("matchProfileNickname").textContent =
+                "プロフィールを表示できません";
+            return;
+        }
+        if (!profileSnapshot.exists()) {
+            document.getElementById("matchProfileNickname").textContent =
+                "プロフィールが見つかりません";
+            return;
+        }
+        renderProfileDetails(profileSnapshot.data());
+    } catch (error) {
+        if (loadId === matchProfileLoadId) {
+            document.getElementById("matchProfileNickname").textContent =
+                "プロフィールを読み込めませんでした";
+            alert(error.message);
+        }
+    }
+}
+
+async function showMatchProfile(match, partnerId, profile) {
+    const currentUser = auth.currentUser;
+    const isMatchParticipant = currentUser && match && (
+        (match.user1 === currentUser.uid && match.user2 === partnerId) ||
+        (match.user2 === currentUser.uid && match.user1 === partnerId)
+    );
+    if (!isMatchParticipant) {
+        alert("マッチ情報を確認できません");
+        return;
+    }
+
+    const loadId = ++matchProfileLoadId;
+    const matchedModes = [...new Set([
+        ...(Array.isArray(match.modes) ? match.modes : []),
+        ...(typeof match.mode === "string" ? [match.mode] : [])
+    ])].filter((mode) =>
+        typeof mode === "string" &&
+        Object.prototype.hasOwnProperty.call(MODE_CONFIG, mode)
+    );
+
+    stopListeningToMessages();
+    stopListeningToGroupSuggestions();
+    matchProfileBackPage = "matchListPage";
+    hideModePages();
+    document.getElementById("matchListPage").classList.add("hidden");
+    document.getElementById("groupSuggestionsPage").classList.add("hidden");
+    document.getElementById("chatPage").classList.add("hidden");
+    document.getElementById("matchProfilePage").classList.remove("hidden");
+
+    renderProfileDetails(profile);
     const modeProfilesContainer = document.getElementById("matchModeProfiles");
     modeProfilesContainer.textContent = matchedModes.length > 0
         ? "読み込み中..."
@@ -2055,7 +2333,13 @@ document
     .addEventListener("click", () => {
         matchProfileLoadId++;
         document.getElementById("matchProfilePage").classList.add("hidden");
-        document.getElementById("matchListPage").classList.remove("hidden");
+        document.getElementById(matchProfileBackPage).classList.remove("hidden");
+        if (matchProfileBackPage === "groupSuggestionsPage") {
+            const currentUser = auth.currentUser;
+            if (currentUser) {
+                listenToSharedGroupSuggestions(currentUser.uid);
+            }
+        }
     });
 
 async function openChat(match, partnerId, partnerName) {
@@ -2066,6 +2350,7 @@ async function openChat(match, partnerId, partnerName) {
     }
 
     stopListeningToMessages();
+    stopListeningToGroupSuggestions();
     try {
         if (await isBlockedBetweenUsers(currentUser.uid, partnerId)) {
             alert("ブロック中のユーザーとはチャットできません");

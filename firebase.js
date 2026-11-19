@@ -73,6 +73,8 @@ let groupDetailLoadId = 0;
 let currentGroupDetails = null;
 let sharedGroupSuggestionsById = new Map();
 let groupSchedulesById = new Map();
+let moderationWords = [];
+let unsubscribeModerationSettings = null;
 const MAX_MESSAGES_PER_USER = 5;
 const MATCHES_PER_PAGE = 5;
 const PROFILE_IMAGE_SIZE = 512;
@@ -89,6 +91,81 @@ const GROUP_WEEKDAYS = [
     { key: "thu", label: "木曜日" },
     { key: "fri", label: "金曜日" }
 ];
+
+function getModerationWords(snapshot) {
+    const words = snapshot.exists() ? snapshot.data()?.ngWords : [];
+    return Array.isArray(words)
+        ? words.filter((word) => typeof word === "string" && word.trim())
+            .map((word) => word.trim())
+        : [];
+}
+
+async function refreshModerationWords() {
+    const snapshot = await getDoc(doc(db, "settings", "moderation"));
+    moderationWords = getModerationWords(snapshot);
+    return moderationWords;
+}
+
+function listenToModerationSettings() {
+    unsubscribeModerationSettings?.();
+    unsubscribeModerationSettings = onSnapshot(
+        doc(db, "settings", "moderation"),
+        (snapshot) => {
+            moderationWords = getModerationWords(snapshot);
+        },
+        (error) => {
+            alert(`NGワードを読み込めませんでした: ${error.message}`);
+        }
+    );
+}
+
+function maskInappropriateText(value) {
+    if (typeof value !== "string" || !value) {
+        return value;
+    }
+
+    return moderationWords.reduce((filteredText, word) => {
+        const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return filteredText.replace(
+            new RegExp(escapedWord, "gi"),
+            "*".repeat(word.length)
+        );
+    }, value);
+}
+
+function maskUserProfile(profile) {
+    if (!profile || typeof profile !== "object") {
+        return profile;
+    }
+
+    return {
+        ...profile,
+        nickname: maskInappropriateText(profile.nickname),
+        faculty: maskInappropriateText(profile.faculty),
+        department: maskInappropriateText(profile.department),
+        bio: maskInappropriateText(profile.bio)
+    };
+}
+
+function maskModeProfile(profile, mode) {
+    const config = MODE_CONFIG[mode];
+    if (!profile || !config) {
+        return profile;
+    }
+
+    const maskedProfile = { ...profile };
+    config.fields.forEach((field) => {
+        if (field.displayValues || field.inputType === "checkboxes") {
+            return;
+        }
+        const { key } = field;
+        const value = profile[key];
+        maskedProfile[key] = Array.isArray(value)
+            ? value.map(maskInappropriateText)
+            : maskInappropriateText(value);
+    });
+    return maskedProfile;
+}
 const GROUP_TIME_SLOTS = GROUP_WEEKDAYS.flatMap(({ key }) => [
     ...[1, 2, 3, 4, 5].map((period) => `${key}_${period}`),
     `${key}_after`
@@ -217,7 +294,13 @@ const MODE_CONFIG = {
             {
                 key: "purpose",
                 label: "国際交流目的",
-                inputId: "exchangePurpose"
+                inputId: "exchangePurpose",
+                displayValues: {
+                    "友達作り": "友達作り",
+                    "語学学習": "語学学習",
+                    "文化交流": "文化交流",
+                    "イベント参加": "イベント参加"
+                }
             }
         ]
     }
@@ -517,7 +600,7 @@ async function getUserProfiles(userIds) {
     return Promise.all(userIds.map(async (userId) => {
         const snapshot = await getDoc(doc(db, "users", userId));
         return snapshot.exists()
-            ? { id: userId, ...snapshot.data() }
+            ? { id: userId, ...maskUserProfile(snapshot.data()) }
             : null;
     }));
 }
@@ -559,11 +642,14 @@ async function generateGroups() {
         )
     ]);
     const allProfiles = usersSnapshot.docs
-        .map((userDoc) => ({
-            id: userDoc.id,
-            ...userDoc.data(),
-            normalizedGrade: normalizeGrade(userDoc.data().grade)
-        }))
+        .map((userDoc) => {
+            const profile = maskUserProfile(userDoc.data());
+            return {
+                id: userDoc.id,
+                ...profile,
+                normalizedGrade: normalizeGrade(profile.grade)
+            };
+        })
         .filter((profile) =>
             !excludedIds.has(profile.id) &&
             profile.normalizedGrade &&
@@ -575,7 +661,7 @@ async function generateGroups() {
     if (!currentSnapshot) {
         throw new Error("プロフィールが見つかりません");
     }
-    const currentProfileData = currentSnapshot.data();
+    const currentProfileData = maskUserProfile(currentSnapshot.data());
     const currentProfile = {
         id: currentUser.uid,
         ...currentProfileData,
@@ -1734,13 +1820,13 @@ document
             return;
         }
 
-        const nickname =
+        const rawNickname =
             document.getElementById("nickname").value;
 
-        const faculty =
+        const rawFaculty =
             document.getElementById("faculty").value;
 
-        const department =
+        const rawDepartment =
             document.getElementById("department").value;
 
         const gender =
@@ -1749,7 +1835,7 @@ document
         const grade =
             document.getElementById("grade").value;
 
-        const bio =
+        const rawBio =
             document.getElementById("bio").value;
 
         const imageFile =
@@ -1757,6 +1843,12 @@ document
 
         try {
 
+            await refreshModerationWords();
+            listenToModerationSettings();
+            const nickname = maskInappropriateText(rawNickname);
+            const faculty = maskInappropriateText(rawFaculty);
+            const department = maskInappropriateText(rawDepartment);
+            const bio = maskInappropriateText(rawBio);
             const profileSnapshot =
                 await getDoc(doc(db, "users", user.uid));
             let imageUrl =
@@ -1775,9 +1867,9 @@ document
             await updateDoc(
                 doc(db, "users", user.uid),
                 {
-                    nickname: nickname,
-                    faculty: faculty,
-                    department: department,
+                    nickname,
+                    faculty,
+                    department,
                     gender,
                     grade: grade,
                     bio: bio,
@@ -1908,12 +2000,16 @@ async function showProfile(user, profileData = null, showNavigation = false) {
     document.getElementById("matchProfilePage").classList.add("hidden");
     document.getElementById("chatPage").classList.add("hidden");
     document.getElementById("profileForm").classList.remove("hidden");
-    document.getElementById("nickname").value = profileData.nickname || "";
-    document.getElementById("faculty").value = profileData.faculty || "";
-    document.getElementById("department").value = profileData.department || "";
+    document.getElementById("nickname").value =
+        maskInappropriateText(profileData.nickname) || "";
+    document.getElementById("faculty").value =
+        maskInappropriateText(profileData.faculty) || "";
+    document.getElementById("department").value =
+        maskInappropriateText(profileData.department) || "";
     document.getElementById("gender").value = profileData.gender || "";
     document.getElementById("grade").value = normalizeGrade(profileData.grade);
-    document.getElementById("bio").value = profileData.bio || "";
+    document.getElementById("bio").value =
+        maskInappropriateText(profileData.bio) || "";
     document.getElementById("profileImage").value = "";
     document.getElementById("profileFormTitle").textContent =
         showNavigation ? "プロフィール編集" : "プロフィール登録";
@@ -1980,8 +2076,9 @@ function showModeProfileForm(mode, profileData = {}, isEditing = false) {
                     input.checked = selectedValues.includes(input.value);
                 });
         } else {
+            const value = profileData[field.key] || "";
             document.getElementById(field.inputId).value =
-                profileData[field.key] || "";
+                field.displayValues ? value : maskInappropriateText(value);
         }
     });
     document.getElementById(config.profilePageId)
@@ -2088,21 +2185,26 @@ Object.entries(MODE_CONFIG).forEach(([mode, config]) => {
                 return;
             }
 
-            const profile = {};
-            for (const field of config.fields) {
-                const value = field.inputType === "checkboxes"
-                    ? [...document.querySelectorAll(
-                        `input[name="${field.inputId}"]:checked`
-                    )].map((input) => input.value)
-                    : document.getElementById(field.inputId).value.trim();
-                if (value.length === 0) {
-                    alert(`${config.title}プロフィールの項目をすべて入力してください`);
-                    return;
-                }
-                profile[field.key] = value;
-            }
-
             try {
+                await refreshModerationWords();
+                const profile = {};
+                for (const field of config.fields) {
+                    let value = field.inputType === "checkboxes"
+                        ? [...document.querySelectorAll(
+                            `input[name="${field.inputId}"]:checked`
+                        )].map((input) => input.value)
+                        : document.getElementById(field.inputId).value.trim();
+                    if (!field.displayValues &&
+                        field.inputType !== "checkboxes") {
+                        value = maskInappropriateText(value);
+                    }
+                    if (value.length === 0) {
+                        alert(`${config.title}プロフィールの項目をすべて入力してください`);
+                        return;
+                    }
+                    profile[field.key] = value;
+                }
+
                 await setDoc(
                     doc(db, `${mode}Profiles`, user.uid),
                     profile,
@@ -2118,6 +2220,9 @@ Object.entries(MODE_CONFIG).forEach(([mode, config]) => {
 
 onAuthStateChanged(auth, async (user) => {
     if (!user) {
+        unsubscribeModerationSettings?.();
+        unsubscribeModerationSettings = null;
+        moderationWords = [];
         registrationInProgress = false;
         scheduleGroupSuggestionRefresh(null);
         showLogin();
@@ -2148,6 +2253,11 @@ onAuthStateChanged(auth, async (user) => {
             window.location.href = "./suspended.html";
             return;
         }
+        await refreshModerationWords();
+        if (auth.currentUser?.uid !== user.uid) {
+            return;
+        }
+        listenToModerationSettings();
         if (userSnapshot.exists()) {
             try {
                 await updateDoc(doc(db, "users", user.uid), {
@@ -2379,7 +2489,7 @@ async function loadModeUsers() {
                     }
                     const profile = {
                         id: userSnapshot.id,
-                        ...userSnapshot.data()
+                        ...maskUserProfile(userSnapshot.data())
                     };
                     if (
                         mode === "relationship" &&
@@ -2521,7 +2631,7 @@ async function showMatchList() {
                     match,
                     partnerId,
                     profile: profileSnapshot.exists()
-                        ? profileSnapshot.data()
+                        ? maskUserProfile(profileSnapshot.data())
                         : {}
                 };
             })
@@ -2678,7 +2788,9 @@ async function loadBlockedUsers() {
                     userId,
                     blockIds,
                     nickname: profileSnapshot.exists()
-                        ? profileSnapshot.data().nickname || "名前未設定"
+                        ? maskInappropriateText(
+                            profileSnapshot.data().nickname
+                        ) || "名前未設定"
                         : "退会済みユーザー"
                 };
             })
@@ -2764,10 +2876,11 @@ function renderMatchedModeProfiles(modeProfiles) {
             return;
         }
 
+        const safeProfile = maskModeProfile(profile, mode);
         const fields = document.createElement("dl");
         fields.className = "matchModeProfileFields";
         config.fields.forEach((field) => {
-            const rawValue = profile[field.key];
+            const rawValue = safeProfile[field.key];
             const values = Array.isArray(rawValue) ? rawValue : [rawValue];
             const displayValues = values
                 .filter((value) =>
@@ -2776,7 +2889,10 @@ function renderMatchedModeProfiles(modeProfiles) {
                 )
                 .map((value) => {
                     const text = String(value).trim();
-                    return field.displayValues?.[text] || text;
+                    return field.displayValues?.[text] ||
+                        (field.inputType === "checkboxes"
+                            ? text
+                            : maskInappropriateText(text));
                 });
 
             const label = document.createElement("dt");
@@ -2793,6 +2909,7 @@ function renderMatchedModeProfiles(modeProfiles) {
 }
 
 function renderProfileDetails(profile) {
+    profile = maskUserProfile(profile || {});
     const image = document.getElementById("matchProfileImage");
     if (profile.profileImageUrl) {
         image.src = profile.profileImageUrl;
@@ -3166,7 +3283,7 @@ function renderMessages(messageDocs) {
                 ? "あなた"
                 : activeMatch?.partnerName || "相手";
         const text = document.createElement("div");
-        text.textContent = message.text || "";
+        text.textContent = maskInappropriateText(message.text || "");
         item.append(sender, text);
 
         if (message.createdAt?.toDate) {
@@ -3200,29 +3317,8 @@ document
         const sendButton = event.currentTarget;
         sendButton.disabled = true;
         try {
-            const settingsSnapshot = await getDoc(
-                doc(db, "settings", "moderation")
-            );
-            const ngWords = settingsSnapshot.exists()
-                ? settingsSnapshot.data()?.ngWords
-                : [];
-            let filteredText = text;
-            (Array.isArray(ngWords) ? ngWords : []).forEach((word) => {
-                if (typeof word !== "string" || !word.trim()) {
-                    return;
-                }
-
-                const normalizedWord = word.trim();
-                const escapedWord = normalizedWord.replace(
-                    /[.*+?^${}()|[\]\\]/g,
-                    "\\$&"
-                );
-                const regex = new RegExp(escapedWord, "gi");
-                filteredText = filteredText.replace(
-                    regex,
-                    "*".repeat(normalizedWord.length)
-                );
-            });
+            await refreshModerationWords();
+            const filteredText = maskInappropriateText(text);
 
             if (await isBlockedBetweenUsers(currentUser.uid, partnerId)) {
                 setChatBlocked(true);
@@ -3510,9 +3606,10 @@ async function loadModeProfile(userId) {
             return;
         }
 
-        const data = mode === "exchange" && users[currentIndex]?.exchangeProfile
+        const rawData = mode === "exchange" && users[currentIndex]?.exchangeProfile
             ? users[currentIndex].exchangeProfile
             : profileDoc.data();
+        const data = maskModeProfile(rawData, mode);
         const heading = document.createElement("h4");
         heading.textContent = `${config.icon} ${config.title}モード`;
         area.replaceChildren(heading);
@@ -3529,7 +3626,7 @@ async function loadModeProfile(userId) {
             const value = data[key];
             const displayValue = Array.isArray(value)
                 ? value.join("、")
-                : displayValues?.[value] || value;
+                : displayValues?.[value] || maskInappropriateText(value);
             paragraph.textContent =
                 `${label}: ${displayValue || "未設定"}`;
             area.append(paragraph);

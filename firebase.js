@@ -2538,6 +2538,90 @@ async function loadModeUsers() {
     }
 }
 
+function getMatchUnreadCount(match, userId) {
+    const unreadCount = match.user1 === userId
+        ? match.user1Unread
+        : match.user2Unread;
+    return Math.max(0, Number(unreadCount) || 0);
+}
+
+function isNewMatchForUser(match, userId) {
+    return match.user1 === userId
+        ? match.user1SeenMatch !== true
+        : match.user2SeenMatch !== true;
+}
+
+function getMatchActivityTime(match) {
+    const value = match.lastMessageAt || match.createdAt;
+    if (value?.toDate) {
+        return value.toDate().getTime();
+    }
+    if (value instanceof Date) {
+        return value.getTime();
+    }
+    const timestamp = new Date(value || 0).getTime();
+    return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function sortMatchesByPriority(userId) {
+    matchesWithProfiles.sort((first, second) => {
+        const unreadDifference =
+            getMatchUnreadCount(second.match, userId) -
+            getMatchUnreadCount(first.match, userId);
+        if (unreadDifference !== 0) {
+            return unreadDifference;
+        }
+
+        const newDifference =
+            Number(isNewMatchForUser(second.match, userId)) -
+            Number(isNewMatchForUser(first.match, userId));
+        if (newDifference !== 0) {
+            return newDifference;
+        }
+
+        return getMatchActivityTime(second.match) -
+            getMatchActivityTime(first.match);
+    });
+}
+
+function setMatchSeenLocally(matchId, userId) {
+    const entry = matchesWithProfiles.find(
+        ({ match }) => match.id === matchId
+    );
+    if (!entry) {
+        return;
+    }
+    if (entry.match.user1 === userId) {
+        entry.match.user1SeenMatch = true;
+    } else if (entry.match.user2 === userId) {
+        entry.match.user2SeenMatch = true;
+    }
+    sortMatchesByPriority(userId);
+}
+
+async function markMatchSeen(match, userId) {
+    const seenField = match.user1 === userId
+        ? "user1SeenMatch"
+        : match.user2 === userId
+            ? "user2SeenMatch"
+            : null;
+    if (!seenField) {
+        throw new Error("このマッチを確認できません");
+    }
+    if (match[seenField] === true) {
+        return;
+    }
+
+    await updateDoc(doc(db, "matches", match.id), {
+        [seenField]: true
+    });
+    match[seenField] = true;
+    setMatchSeenLocally(match.id, userId);
+    if (!document.getElementById("matchListPage").classList.contains("hidden")) {
+        renderMatchPage();
+    }
+}
+
 async function showMatchList() {
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -2636,6 +2720,7 @@ async function showMatchList() {
                 };
             })
         );
+        sortMatchesByPriority(currentUser.uid);
 
         if (auth.currentUser?.uid !== currentUser.uid) {
             return;
@@ -2703,6 +2788,13 @@ function renderMatchPage() {
             badge.className = "unreadBadge";
             badge.textContent = `🔴 ${unreadCount}件`;
             info.append(badge);
+        }
+
+        if (isNewMatchForUser(match, currentUser.uid)) {
+            const newLabel = document.createElement("span");
+            newLabel.className = "newMatchBadge";
+            newLabel.textContent = "NEW";
+            info.append(newLabel);
         }
 
         const profileButton = document.createElement("button");
@@ -3000,6 +3092,12 @@ async function showMatchProfile(match, partnerId, profile) {
         return;
     }
 
+    try {
+        await markMatchSeen(match, currentUser.uid);
+    } catch (error) {
+        alert(`NEW状態を更新できませんでした: ${error.message}`);
+    }
+
     const loadId = ++matchProfileLoadId;
     const matchedModes = [...new Set([
         ...(Array.isArray(match.modes) ? match.modes : []),
@@ -3116,9 +3214,6 @@ async function openChat(match, partnerId, partnerName) {
     document.getElementById("chatMessages").textContent = "読み込み中...";
 
     const matchRef = doc(db, "matches", match.id);
-    const unreadField = match.user1 === currentUser.uid
-        ? "user1Unread"
-        : "user2Unread";
     try {
         await runTransaction(db, async (transaction) => {
             const ownBlockRef = doc(
@@ -3145,6 +3240,18 @@ async function openChat(match, partnerId, partnerName) {
             }
 
             const matchData = matchSnapshot.data();
+            if (
+                matchData.user1 !== currentUser.uid &&
+                matchData.user2 !== currentUser.uid
+            ) {
+                throw new Error("このマッチにアクセスできません");
+            }
+            const unreadField = matchData.user1 === currentUser.uid
+                ? "user1Unread"
+                : "user2Unread";
+            const seenField = matchData.user1 === currentUser.uid
+                ? "user1SeenMatch"
+                : "user2SeenMatch";
             const updates = { [unreadField]: 0 };
             [
                 "user1Unread",
@@ -3156,8 +3263,10 @@ async function openChat(match, partnerId, partnerName) {
                     updates[field] = 0;
                 }
             });
+            updates[seenField] = true;
             transaction.update(matchRef, updates);
         });
+        setMatchSeenLocally(match.id, currentUser.uid);
     } catch (error) {
         alert(error.message);
         stopListeningToMessages();
@@ -3338,6 +3447,7 @@ document
             const messageRef = doc(
                 collection(db, "matches", matchId, "messages")
             );
+            const messageCreatedAt = new Date();
             const remaining = await runTransaction(db, async (transaction) => {
                 const [matchSnapshot, ownBlockSnapshot, partnerBlockSnapshot] =
                     await Promise.all([
@@ -3376,11 +3486,12 @@ document
                 transaction.set(messageRef, {
                     senderId: currentUser.uid,
                     text: filteredText,
-                    createdAt: new Date()
+                    createdAt: messageCreatedAt
                 });
                 transaction.update(matchRef, {
                     [countField]: messageCount + 1,
-                    [unreadField]: (Number(matchData[unreadField]) || 0) + 1
+                    [unreadField]: (Number(matchData[unreadField]) || 0) + 1,
+                    lastMessageAt: messageCreatedAt
                 });
                 return MAX_MESSAGES_PER_USER - messageCount - 1;
             });
@@ -3766,6 +3877,17 @@ document
                                 updates[field] = 0;
                             }
                         });
+                        [
+                            "user1SeenMatch",
+                            "user2SeenMatch"
+                        ].forEach((field) => {
+                            if (typeof matchData[field] !== "boolean") {
+                                updates[field] = false;
+                            }
+                        });
+                        if (!matchData.createdAt) {
+                            updates.createdAt = new Date();
+                        }
                         transaction.update(matchRef, updates);
                     });
                 } else {
@@ -3777,6 +3899,8 @@ document
                             modes: [mode],
                             user1Unread: 0,
                             user2Unread: 0,
+                            user1SeenMatch: false,
+                            user2SeenMatch: false,
                             user1MessageCount: 0,
                             user2MessageCount: 0,
                             createdAt: new Date()

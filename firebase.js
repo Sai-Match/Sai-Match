@@ -2127,7 +2127,6 @@ onAuthStateChanged(auth, async (user) => {
     if (registrationInProgress) {
         return;
     }
-    scheduleGroupSuggestionRefresh(user.uid);
 
     try {
         const userSnapshot = await getDoc(doc(db, "users", user.uid));
@@ -2136,6 +2135,32 @@ onAuthStateChanged(auth, async (user) => {
         }
 
         const profile = userSnapshot.exists() ? userSnapshot.data() : null;
+        const suspensionExpiry = profile?.suspendedUntil?.toDate
+            ? profile.suspendedUntil.toDate()
+            : profile?.suspendedUntil
+                ? new Date(profile.suspendedUntil)
+                : null;
+        const suspensionActive = profile?.suspended === true &&
+            (!profile.suspendedUntil ||
+                !Number.isFinite(suspensionExpiry?.getTime()) ||
+                suspensionExpiry.getTime() > Date.now());
+        if (suspensionActive) {
+            window.location.href = "./suspended.html";
+            return;
+        }
+        if (userSnapshot.exists()) {
+            try {
+                await updateDoc(doc(db, "users", user.uid), {
+                    lastLoginAt: new Date()
+                });
+            } catch (error) {
+                alert(`最終ログイン日時を保存できませんでした: ${error.message}`);
+            }
+            if (auth.currentUser?.uid !== user.uid) {
+                return;
+            }
+        }
+        scheduleGroupSuggestionRefresh(user.uid);
 
         if (
             !profile?.nickname ||

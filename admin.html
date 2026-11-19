@@ -8,19 +8,253 @@
     <link rel="icon" href="./icon-512.png" type="image/png" sizes="512x512">
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" sizes="180x180">
     <link rel="manifest" href="./site.webmanifest">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="SaiMatch">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="theme-color" content="#00a65a">
     <title>SaiMatch Admin</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: system-ui, sans-serif;
+            color: #202a24;
+            background: #f3f6f4;
+        }
+
+        body {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        h1, h2, h3, p {
+            margin-top: 0;
+        }
+
+        section, .report-card, .person-card {
+            background: #fff;
+            border: 1px solid #dce5df;
+            border-radius: 10px;
+            padding: 16px;
+        }
+
+        section {
+            margin: 18px 0;
+        }
+
+        .filters, .report-grid, .people-grid, .action-groups {
+            display: grid;
+            gap: 12px;
+        }
+
+        .filters {
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            align-items: end;
+        }
+
+        .report-grid, .people-grid {
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        }
+
+        .action-groups {
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+        }
+
+        input, select, textarea, button {
+            box-sizing: border-box;
+            font: inherit;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            margin-top: 5px;
+            padding: 9px;
+        }
+
+        button {
+            cursor: pointer;
+            border: 1px solid #9aaba0;
+            border-radius: 6px;
+            background: #fff;
+            padding: 8px 12px;
+            margin: 3px;
+        }
+
+        button:hover:not(:disabled) {
+            background: #edf5ef;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: .6;
+        }
+
+        .report-card {
+            margin: 10px 0;
+        }
+
+        .report-card h3 {
+            margin-bottom: 6px;
+        }
+
+        .report-card p {
+            margin-bottom: 8px;
+        }
+
+        .person-card img {
+            width: 84px;
+            height: 84px;
+            object-fit: cover;
+            border-radius: 50%;
+        }
+
+        .person-card dl, .report-data {
+            display: grid;
+            grid-template-columns: minmax(90px, 130px) 1fr;
+            gap: 7px 12px;
+            margin: 12px 0 0;
+        }
+
+        dt {
+            font-weight: 700;
+        }
+
+        dd {
+            margin: 0;
+            overflow-wrap: anywhere;
+            white-space: pre-wrap;
+        }
+
+        .report-count {
+            display: inline-block;
+            border-radius: 12px;
+            padding: 2px 9px;
+            background: #e5eee8;
+            font-weight: 700;
+        }
+
+        .report-count.warning {
+            background: #fff1bd;
+        }
+
+        .report-count.danger {
+            background: #ffd9d9;
+            color: #9c2020;
+        }
+
+        .muted, time {
+            color: #5d6b62;
+        }
+
+        .user-uid {
+            font-family: ui-monospace, monospace;
+            font-weight: 700;
+        }
+
+        .completion-control {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin: 6px 8px 6px 0;
+            font-weight: 500;
+        }
+
+        .completion-control input {
+            width: auto;
+            margin: 0;
+        }
+
+        #adminStatus {
+            min-height: 1.5em;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 12px;
+            }
+
+            .person-card dl, .report-data {
+                grid-template-columns: 1fr;
+                gap: 3px;
+            }
+
+            dd {
+                margin-bottom: 8px;
+            }
+        }
+    </style>
 </head>
 <body>
     <h1>管理画面</h1>
-    <p id="adminStatus" role="status">読み込み中...</p>
+    <p id="adminStatus" role="status" aria-live="polite">読み込み中...</p>
 
     <section>
         <h2>通報一覧</h2>
-        <div id="reportsList"></div>
+        <div class="filters">
+            <label>
+                UID検索
+                <input id="uidSearch" type="search" autocomplete="off">
+            </label>
+            <label>
+                ニックネーム検索
+                <input id="nicknameSearch" type="search" autocomplete="off">
+            </label>
+            <label>
+                理由検索
+                <input id="reasonSearch" type="search" autocomplete="off">
+            </label>
+            <label>
+                状態
+                <select id="statusFilter">
+                    <option value="all">すべて</option>
+                    <option value="open">未対応</option>
+                    <option value="investigating">対応中</option>
+                    <option value="resolved">対応済み</option>
+                    <option value="rejected">却下</option>
+                </select>
+            </label>
+            <label>
+                停止状態
+                <select id="suspensionFilter">
+                    <option value="all">すべて</option>
+                    <option value="suspended">停止中のみ</option>
+                </select>
+            </label>
+        </div>
+        <div id="reportsList" aria-live="polite"></div>
+    </section>
+
+    <section id="reportDetail" hidden>
+        <h2>通報詳細</h2>
+        <div id="reportDetailContent"></div>
+        <div class="filters">
+            <label>
+                状態を変更
+                <select id="reportStatus">
+                    <option value="open">未対応</option>
+                    <option value="investigating">対応中</option>
+                    <option value="resolved">対応済み</option>
+                    <option value="rejected">却下</option>
+                </select>
+            </label>
+            <button id="saveReportStatus" type="button">状態を更新</button>
+        </div>
+
+        <h3>管理者アクション</h3>
+        <div class="action-groups">
+            <div class="person-card">
+                <h4>中程度 — 一時停止</h4>
+                <button type="button" data-suspend-hours="24">24時間停止</button>
+                <button type="button" data-suspend-days="7">7日停止</button>
+                <button type="button" data-suspend-days="30">30日停止</button>
+            </div>
+            <div class="person-card">
+                <h4>重度 — 永久停止</h4>
+                <button type="button" data-suspend-permanent="true">永久停止</button>
+            </div>
+        </div>
     </section>
 
     <section>

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#00a65a">
+    <title>利用停止中 - SaiMatch</title>
+</head>
+<body>
+    <main>
+        <h1>利用停止中</h1>
+        <p>このアカウントは現在利用停止中です。解除時期については運営にお問い合わせください。</p>
+        <button id="signOut" type="button">ログアウト</button>
+        <p id="status" role="status" aria-live="polite"></p>
+    </main>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+        import { doc, getDoc, getFirestore } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+
+        const app = initializeApp({
+            apiKey: "AIzaSyByNHgDn685QV2SYNSHjhP9pUM6qX3wVos",
+            authDomain: "sai-match-ca3b1.firebaseapp.com",
+            projectId: "sai-match-ca3b1",
+            storageBucket: "sai-match-ca3b1.firebasestorage.app",
+            messagingSenderId: "769433518324",
+            appId: "1:769433518324:web:75de9d9ea210116b9bdea1",
+            measurementId: "G-SF1R9LH0NR"
+        });
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const status = document.getElementById("status");
+
+        onAuthStateChanged(auth, async (user) => {
+            if (!user) {
+                window.location.href = "/";
+                return;
+            }
+            try {
+                const userSnapshot = await getDoc(doc(db, "users", user.uid));
+                const profile = userSnapshot.exists() ? userSnapshot.data() : null;
+                const suspendedUntil = profile?.suspendedUntil?.toDate
+                    ? profile.suspendedUntil.toDate()
+                    : profile?.suspendedUntil
+                        ? new Date(profile.suspendedUntil)
+                        : null;
+                const active = profile?.suspended === true &&
+                    (!profile.suspendedUntil ||
+                        !Number.isFinite(suspendedUntil?.getTime()) ||
+                        suspendedUntil.getTime() > Date.now());
+                if (!active) {
+                    window.location.href = "/";
+                }
+            } catch (error) {
+                status.textContent = `停止状態を確認できませんでした: ${error.message}`;
+            }
+        });
+
+        document.getElementById("signOut").addEventListener("click", async () => {
+            const button = document.getElementById("signOut");
+            button.disabled = true;
+            try {
+                await signOut(auth);
+                window.location.href = "/";
+            } catch (error) {
+                status.textContent = `ログアウトに失敗しました: ${error.message}`;
+                button.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

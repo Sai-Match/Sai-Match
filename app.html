@@ -651,8 +651,11 @@
 
         <div id="modeSelectPage" class="hidden">
             <h2>モード選択</h2>
+            <button id="exchangeModeBtn" type="button">
+                🌏 国際交流モード
+            </button>
             <button id="relationshipModeBtn" type="button">
-                ❤️ 人間関係モード
+                ❤️ 友人探しモード
             </button>
             <button id="studyModeBtn" type="button">
                 📚 学習モード
@@ -663,24 +666,16 @@
             <button id="careerModeBtn" type="button">
                 💼 就活モード
             </button>
-            <button id="exchangeModeBtn" type="button">
-                🌏 国際交流モード
-            </button>
         </div>
 
         <div id="relationshipProfilePage" class="hidden">
-            <h2>人間関係モード登録</h2>
+            <h2>友人探しモード登録</h2>
             <select id="targetGender">
                 <option value="">表示したい性別</option>
                 <option value="male">男性</option>
                 <option value="female">女性</option>
-                <option value="both">どちらも</option>
-            </select>
-            <select id="relationshipGoal">
-                <option value="">選択してください</option>
-                <option value="friend">友達募集</option>
-                <option value="lover">恋人募集</option>
-                <option value="both">両方</option>
+                <option value="other">その他/回答しない</option>
+                <option value="all">すべて</option>
             </select>
             <input
                 type="text"

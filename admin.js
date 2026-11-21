@@ -36,7 +36,7 @@ const saveNgWordsButton = document.getElementById("saveNgWords");
 const reportStatusSelect = document.getElementById("reportStatus");
 const saveReportStatusButton = document.getElementById("saveReportStatus");
 const moderationModes = [
-    { key: "relationshipProfiles", label: "人間関係" },
+    { key: "relationshipProfiles", label: "友人探し" },
     { key: "hobbyProfiles", label: "趣味" },
     { key: "exchangeProfiles", label: "交流" }
 ];

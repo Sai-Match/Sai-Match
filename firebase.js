@@ -178,7 +178,7 @@ const GENDER_LABELS = {
 };
 const MODE_CONFIG = {
     relationship: {
-        title: "人間関係",
+        title: "友人探し",
         icon: "❤️",
         profilePageId: "relationshipProfilePage",
         fields: [
@@ -189,17 +189,8 @@ const MODE_CONFIG = {
                 displayValues: {
                     male: "男性",
                     female: "女性",
-                    both: "どちらも"
-                }
-            },
-            {
-                key: "goal",
-                label: "募集目的",
-                inputId: "relationshipGoal",
-                displayValues: {
-                    friend: "友達募集",
-                    lover: "恋人募集",
-                    both: "両方"
+                    other: "その他/回答しない",
+                    all: "すべて"
                 }
             },
             { key: "weekendStyle", label: "休日", inputId: "weekendStyle" },
@@ -2493,12 +2484,18 @@ async function loadModeUsers() {
                     };
                     if (
                         mode === "relationship" &&
-                        ["male", "female"].includes(
+                        currentModeProfile.targetGender &&
+                        !["all", "both"].includes(
                             currentModeProfile.targetGender
-                        ) &&
-                        profile.gender !== currentModeProfile.targetGender
+                        )
                     ) {
-                        return null;
+                        const targetGender = currentModeProfile.targetGender;
+                        const genderMatches = targetGender === "other"
+                            ? ["other", "no_answer"].includes(profile.gender)
+                            : profile.gender === targetGender;
+                        if (!genderMatches) {
+                            return null;
+                        }
                     }
                     if (mode === "exchange") {
                         const exchangeProfile = profileDoc.data();

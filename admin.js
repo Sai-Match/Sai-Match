@@ -323,6 +323,7 @@ function renderReportDetail() {
     appendField(fields, "状態", statusLabels[reportStatus(report)]);
     appendField(fields, "理由", report.reason || "理由なし");
     appendField(fields, "内容", report.detail || "記載なし");
+    appendField(fields, "チャットID（マッチID）", report.matchId || "不明");
     reportDetailContent.append(fields);
 
     const people = document.createElement("div");

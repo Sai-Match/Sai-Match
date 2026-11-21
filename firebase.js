@@ -3557,6 +3557,7 @@ document
             await addDoc(collection(db, "reports"), {
                 reporterId: currentUser.uid,
                 targetUserId: match.partnerId,
+                matchId: match.id,
                 reason: reason.trim(),
                 detail: detail.trim(),
                 status: "open",

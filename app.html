@@ -33,7 +33,6 @@
             padding: 20px;
             background: white;
             border-radius: 12px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
             box-sizing: border-box;
         }
 
@@ -124,7 +123,6 @@
             padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
             border-top: 1px solid #ddd;
             background: rgba(255, 255, 255, 0.98);
-            box-shadow: 0 -3px 12px rgba(0, 0, 0, 0.08);
             transform: translateX(-50%);
         }
 
@@ -348,6 +346,16 @@
             color: red;
         }
 
+        .chatSafetyActions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .chatSafetyActions button {
+            width: 50%;
+            margin-top: 15px;
+        }
+
         .noticeBox {
             margin-top: 15px;
             padding: 10px;
@@ -375,6 +383,126 @@
             flex: 0 0 auto;
             width: auto;
             margin: 4px 0 0;
+        }
+
+        #modeSelectPage {
+            padding: 8px 0 16px;
+        }
+
+        #modeSelectPage h2 {
+            margin: 8px 0 6px;
+            color: #173d2b;
+            font-size: clamp(24px, 7vw, 32px);
+            letter-spacing: 0.02em;
+        }
+
+        .modeSelectLead {
+            margin: 0 0 18px;
+            color: #718078;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        .modeCardGrid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        #modeSelectPage .modeCard {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            min-height: 150px;
+            margin: 0;
+            padding: 18px;
+            border: 1px solid #dfe8e3;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.72);
+            color: #173d2b;
+            text-align: left;
+            overflow: hidden;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease;
+        }
+
+        #modeSelectPage .modeCard::after {
+            content: "→";
+            position: absolute;
+            right: 16px;
+            bottom: 14px;
+            display: grid;
+            width: 32px;
+            height: 32px;
+            place-items: center;
+            border-radius: 50%;
+            background: rgba(0, 166, 90, 0.1);
+            color: #008b4b;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        #modeSelectPage .modeCard:hover {
+            border-color: #91cbaa;
+            transform: translateY(-2px);
+        }
+
+        #modeSelectPage .modeCard:active {
+            transform: translateY(0);
+        }
+
+        #modeSelectPage .modeCard:focus-visible {
+            outline: 3px solid rgba(0, 166, 90, 0.25);
+            outline-offset: 3px;
+        }
+
+        #modeSelectPage .modeCardPrimary {
+            grid-column: 1 / -1;
+            min-height: 138px !important;
+            border-color: rgba(0, 166, 90, 0.55);
+            background: rgba(0, 166, 90, 0.82) !important;
+            color: #ffffff !important;
+        }
+
+        #modeSelectPage .modeCardPrimary::after {
+            background: rgba(255, 255, 255, 0.18);
+            color: #ffffff;
+        }
+
+        .modeCardIcon {
+            display: grid;
+            width: 46px;
+            height: 46px;
+            margin-bottom: 12px;
+            place-items: center;
+            border-radius: 15px;
+            background: #edf7f1;
+            font-size: 24px;
+        }
+
+        .modeCardPrimary .modeCardIcon {
+            background: rgba(255, 255, 255, 0.18);
+        }
+
+        .modeCardTitle {
+            padding-right: 34px;
+            font-size: 17px;
+            font-weight: 800;
+            line-height: 1.25;
+        }
+
+        .modeCardDescription {
+            margin-top: 6px;
+            padding-right: 34px;
+            color: #7a8880;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .modeCardPrimary .modeCardDescription {
+            color: rgba(255, 255, 255, 0.82);
         }
 
         @media (max-width: 768px) {
@@ -651,21 +779,34 @@
 
         <div id="modeSelectPage" class="hidden">
             <h2>モード選択</h2>
-            <button id="exchangeModeBtn" type="button">
-                🌏 国際交流モード
-            </button>
-            <button id="relationshipModeBtn" type="button">
-                ❤️ 友人探しモード
-            </button>
-            <button id="studyModeBtn" type="button">
-                📚 学習モード
-            </button>
-            <button id="hobbyModeBtn" type="button">
-                🎮 趣味モード
-            </button>
-            <button id="careerModeBtn" type="button">
-                💼 就活モード
-            </button>
+            <p class="modeSelectLead">目的に合ったモードを選んでください</p>
+            <div class="modeCardGrid">
+                <button id="exchangeModeBtn" class="modeCard modeCardPrimary" type="button">
+                    <span class="modeCardIcon" aria-hidden="true">🌏</span>
+                    <span class="modeCardTitle">国際交流モード</span>
+                    <span class="modeCardDescription">留学生や日本人学生と交流しよう</span>
+                </button>
+                <button id="relationshipModeBtn" class="modeCard" type="button">
+                    <span class="modeCardIcon" aria-hidden="true">❤️</span>
+                    <span class="modeCardTitle">友人探しモード</span>
+                    <span class="modeCardDescription">共通の関心を持つ友達を探そう</span>
+                </button>
+                <button id="studyModeBtn" class="modeCard" type="button">
+                    <span class="modeCardIcon" aria-hidden="true">📚</span>
+                    <span class="modeCardTitle">学習モード</span>
+                    <span class="modeCardDescription">一緒に学べる仲間を見つけよう</span>
+                </button>
+                <button id="hobbyModeBtn" class="modeCard" type="button">
+                    <span class="modeCardIcon" aria-hidden="true">🎮</span>
+                    <span class="modeCardTitle">趣味モード</span>
+                    <span class="modeCardDescription">好きなことを楽しむ仲間を探そう</span>
+                </button>
+                <button id="careerModeBtn" class="modeCard" type="button">
+                    <span class="modeCardIcon" aria-hidden="true">💼</span>
+                    <span class="modeCardTitle">就活モード</span>
+                    <span class="modeCardDescription">就職活動の情報や悩みを共有しよう</span>
+                </button>
+            </div>
         </div>
 
         <div id="relationshipProfilePage" class="hidden">
@@ -855,8 +996,10 @@
             <textarea id="messageInput" placeholder="メッセージを入力"></textarea>
             <button id="sendMessageBtn" type="button">送信</button>
             <h2 style="color: red;"><strong>不適切発言はためらわずに通報を！</strong></h2>
-            <button id="blockUserBtn" type="button">🚫 このユーザーをブロック</button>
-            <button id="reportUserBtn" type="button">🚨 このユーザーを通報</button>
+            <div class="chatSafetyActions">
+                <button id="blockUserBtn" type="button">🚫 ブロック</button>
+                <button id="reportUserBtn" type="button">🚨 通報</button>
+            </div>
         </div>
 
     </div>

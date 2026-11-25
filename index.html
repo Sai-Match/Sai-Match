@@ -13,6 +13,18 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="theme-color" content="#00a65a">
     <title>SaiMatch</title>
+    <script>
+        (function (w, d, s, l, i) {
+            w[l] = w[l] || [];
+            w[l].push({ "gtm.start": new Date().getTime(), event: "gtm.js" });
+            var f = d.getElementsByTagName(s)[0];
+            var j = d.createElement(s);
+            var dl = l !== "dataLayer" ? "&l=" + l : "";
+            j.async = true;
+            j.src = "https://www.googletagmanager.com/gtm.js?id=" + i + dl;
+            f.parentNode.insertBefore(j, f);
+        })(window, document, "script", "dataLayer", "GTM-MD7WG4DV");
+    </script>
     <style>
         * {
             box-sizing: border-box;
@@ -204,12 +216,17 @@
     </style>
 </head>
 <body>
+    <noscript>
+        <iframe src="https://www.googletagmanager.com/ns.html?id=GTM-MD7WG4DV"
+            height="0" width="0" style="display:none;visibility:hidden"></iframe>
+    </noscript>
     <main>
         <img class="logo" src="./SaiMatch.png" alt="SaiMatch">
         <h1 class="surveyIntro">以下のアンケートへのご協力お願いいたします。</h1>
         <div class="surveyList">
             <a
                 class="surveyOption"
+                data-analytics-event="international_survey_click"
                 aria-disabled="true"
                 tabindex="-1"
                 href="https://docs.google.com/forms/d/e/1FAIpQLSelBO0WdM6uK-UgJqyDpehLtmt5JhVKnMgw-SY11RGfwKhrqJ/viewform?usp=publish-editor"
@@ -227,6 +244,7 @@
             </a>
             <a
                 class="surveyOption"
+                data-analytics-event="detailed_survey_click"
                 aria-disabled="true"
                 tabindex="-1"
                 href="https://docs.google.com/forms/d/e/1FAIpQLScNjD3u9nZ-uTHC2wsYWtdVUzub00qUPqc-qPqK5LcbOSAxqQ/viewform?usp=publish-editor"
@@ -244,6 +262,7 @@
             </a>
             <a
                 class="surveyOption"
+                data-analytics-event="saimatch_survey_click"
                 href="https://docs.google.com/forms/d/e/1FAIpQLSdjcRpApzOpeZ5fgkSmJ7_zxi1VQ7-GAf51wrXHHOmZqWH_vw/viewform?usp=publish-editor"
                 aria-labelledby="saimatchSurveyTitle"
                 aria-describedby="saimatchSurveyDescription">
@@ -265,5 +284,12 @@
             <a class="button" href="./app.html">SaiMatchを利用してみる　→</a>
         </section>
     </main>
+    <script>
+        document.querySelectorAll("a[data-analytics-event]").forEach((link) => {
+            link.addEventListener("click", () => {
+                window.dataLayer.push({ event: link.dataset.analyticsEvent });
+            });
+        });
+    </script>
 </body>
 </html>

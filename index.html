@@ -91,13 +91,6 @@
             outline-offset: 3px;
         }
 
-        .button[aria-disabled="true"] {
-            background: #a7c9b5;
-            color: #fff;
-            cursor: not-allowed;
-            pointer-events: none;
-        }
-
         .surveyOption {
             display: flex;
             align-items: flex-start;
@@ -113,10 +106,6 @@
             outline: 3px solid #222;
             outline-offset: 4px;
             border-radius: 8px;
-        }
-
-        a.surveyOption[aria-disabled="true"] {
-            pointer-events: none;
         }
 
         .surveyContent {
@@ -141,6 +130,10 @@
             font-weight: 600;
         }
 
+        .surveyStatus {
+            color: #d32f2f;
+        }
+
         .surveyDescription {
             margin: 0;
             line-height: 1.6;
@@ -156,16 +149,6 @@
             border-radius: 999px;
             font-size: 0.875rem;
             font-weight: 700;
-        }
-
-        .surveyOption .button[aria-disabled="true"] {
-            background: #b9cdbf;
-            color: #30493a;
-        }
-
-        .surveyOption[aria-disabled="true"] .button {
-            background: #b9cdbf;
-            color: #30493a;
         }
 
         .appPromotion {
@@ -227,37 +210,35 @@
             <a
                 class="surveyOption"
                 data-analytics-event="international_survey_click"
-                aria-disabled="true"
-                tabindex="-1"
                 href="https://docs.google.com/forms/d/e/1FAIpQLSelBO0WdM6uK-UgJqyDpehLtmt5JhVKnMgw-SY11RGfwKhrqJ/viewform?usp=publish-editor"
                 aria-labelledby="internationalSurveyTitle"
                 aria-describedby="internationalSurveyDescription">
                 <div class="surveyContent">
-                    <h2 class="surveyTitle" id="internationalSurveyTitle">国際交流調査</h2>
+                    <h2 class="surveyTitle" id="internationalSurveyTitle">国際交流調査　<span class="surveyStatus">回答受付中</span></h2>
                     <p class="surveyDescription" id="internationalSurveyDescription">
                         埼玉大学の学生が、学部や国を越えて交流し、英語を練習できる場をつくるためのアンケートです。
                     </p>
+                    <p>所要時間：約３分</p>
                 </div>
                 <span class="button" aria-hidden="true">
-                    受付開始前
+                    回答受付中
                 </span>
             </a>
             <a
                 class="surveyOption"
                 data-analytics-event="detailed_survey_click"
-                aria-disabled="true"
-                tabindex="-1"
                 href="https://docs.google.com/forms/d/e/1FAIpQLScNjD3u9nZ-uTHC2wsYWtdVUzub00qUPqc-qPqK5LcbOSAxqQ/viewform?usp=publish-editor"
                 aria-labelledby="generalSurveyTitle"
                 aria-describedby="generalSurveyDescription">
                 <div class="surveyContent">
-                    <h2 class="surveyTitle" id="generalSurveyTitle">詳細調査</h2>
+                    <h2 class="surveyTitle" id="generalSurveyTitle">詳細調査　<span class="surveyStatus">回答受付中</span></h2>
                     <p class="surveyDescription" id="generalSurveyDescription">
                         国際交流に限らず、埼玉大学内での友人関係・勉強仲間などの交流についての調査です。
                     </p>
+                    <p>所要時間：約５分</p>
                 </div>
                 <span class="button" aria-hidden="true">
-                    受付開始前
+                    回答受付中
                 </span>
             </a>
             <a
@@ -267,11 +248,11 @@
                 aria-labelledby="saimatchSurveyTitle"
                 aria-describedby="saimatchSurveyDescription">
                 <div class="surveyContent">
-                    <h2 class="surveyTitle" id="saimatchSurveyTitle">SaiMatch利用調査</h2>
+                    <h2 class="surveyTitle" id="saimatchSurveyTitle">SaiMatch利用調査　<span class="surveyStatus">回答受付中</span></h2>
                     <p class="surveyDescription" id="saimatchSurveyDescription">
                         SaiMatchの体験利用者を対象とした、アプリの需要・評価に関する調査です。
                     </p>
-                    <p>所要時間：約５分</p>
+                    <p>所要時間：３－５分</p>
                 </div>
                 <span class="button" aria-hidden="true">
                     回答受付中
@@ -285,9 +266,40 @@
         </section>
     </main>
     <script>
+        window.gtag = window.gtag || function () {
+            window.dataLayer.push(arguments);
+        };
+
         document.querySelectorAll("a[data-analytics-event]").forEach((link) => {
-            link.addEventListener("click", () => {
-                window.dataLayer.push({ event: link.dataset.analyticsEvent });
+            link.addEventListener("click", (event) => {
+                if (
+                    event.button !== 0
+                    || event.metaKey
+                    || event.ctrlKey
+                    || event.shiftKey
+                    || event.altKey
+                    || (link.target && link.target !== "_self")
+                ) {
+                    return;
+                }
+
+                event.preventDefault();
+                let navigated = false;
+                let navigationTimeout;
+                const navigate = () => {
+                    if (!navigated) {
+                        navigated = true;
+                        window.clearTimeout(navigationTimeout);
+                        window.location.assign(link.href);
+                    }
+                };
+
+                navigationTimeout = window.setTimeout(navigate, 2000);
+                window.gtag("event", link.dataset.analyticsEvent, {
+                    send_to: "G-SF1R9LH0NR",
+                    event_callback: navigate,
+                    event_timeout: 2000
+                });
             });
         });
     </script>
